@@ -13,7 +13,7 @@ text_prompt = """
 audio_array = generate_audio(text_prompt)
 
 # save audio to disk
-write_wav("outputs/bark_generation.wav", SAMPLE_RATE, audio_array)
+write_wav("resources/bark_generation.wav", SAMPLE_RATE, audio_array)
   
 # play text in notebook
 Audio(audio_array, rate=SAMPLE_RATE)
