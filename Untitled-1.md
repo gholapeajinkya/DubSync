@@ -10,3 +10,7 @@ deactivate
 
 
 
+https://docs.streamlit.io/develop/api-reference/layout
+
+
+streamlit run main_ui.py
