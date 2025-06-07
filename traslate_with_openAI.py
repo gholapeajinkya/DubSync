@@ -21,7 +21,7 @@ client = AzureOpenAI(
 )
 
 
-def translate_with_gpt(segments):
+def translate_with_gpt(audio):
     # segment_text = ""
     # for idx, segment in enumerate(segments):
     #     segment_text += f"\nSegment {idx + 1}:\nJapanese: {segment['text']}\nTranslation: {segment['translation']}\n"
@@ -47,13 +47,12 @@ def translate_with_gpt(segments):
 
 
 # load a json file
-with open('translation_segments.json', 'r') as f:
-    data = json.load(f)
-    translated = translate_with_gpt(data)
-    print(translated)
-    # Save the translated content into a file
-    output_file = 'translated_output.py'
-    with open(output_file, 'w') as f:
-        f.write(translated)
-
-    print(f"Translated content has been saved to {output_file}")
+# with open('translation_segments.json', 'r') as f:
+#     data = json.load(f)
+#     translated = translate_with_gpt(data)
+#     print(translated)
+#     # Save the translated content into a file
+#     output_file = 'translated_output.py'
+#     with open(output_file, 'w') as f:
+#         f.write(translated)
+#     print(f"Translated content has been saved to {output_file}")
