@@ -30,3 +30,10 @@ streamlit run main_ui.py
 
 
 Diarization, in the context of speech recognition and audio processing, refers to the process of identifying and separating different speakers in an audio recording. It's essentially about determining "who said what" within an audio file, typically without knowing the speakers' identities in advance. This process segments the audio into distinct sections, each attributed to a different speaker. 
+
+# New virtual env: 
+
+## How to create - `python3.10 -m venv venv310`
+## Activate - `source venv310/bin/activate`
+## Freeze requiremets - `pip freeze > requirements310.txt`
+
