@@ -17,8 +17,6 @@ import numpy as np
 import sys
 
 st.set_page_config(page_title="DubSync",layout="wide")
-# Patch for librosa compatibility with numpy>=1.24
-np.complex = complex
 
 temp_folder = "resources"
 os.makedirs(temp_folder, exist_ok=True)
@@ -39,7 +37,6 @@ client = AzureOpenAI(
     api_version=api_version,
     azure_endpoint=api_base,
 )
-
 
 if "is_processing" not in st.session_state:
     st.session_state.is_processing = False
@@ -105,6 +102,7 @@ if video_url:
                            ydl.extract_info(video_url, download=False)['title'])
             except Exception as e:
                 st.error(f"An error occurred: {e}")
+
     else:
         try:
             with st.spinner("Downloading video from URL..."):
@@ -121,6 +119,10 @@ if video_url:
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
+def clean_up():
+    shutil.rmtree(temp_folder)
+    st.session_state.is_processing = False
+
 def extract_audio_from_video(video_path):
     with st.spinner("🎬 Extracting audio from the video..."):
         try:
@@ -130,6 +132,7 @@ def extract_audio_from_video(video_path):
             return audio_path
         except Exception as e:
             st.error(f"Failed to extract audio: {e}")
+            clean_up()
             sys.exit(1)
             return None
 
@@ -165,6 +168,7 @@ def google_text_to_speech(text, source_lang="ja", target_lang="en"):
             return "".join([part[0] for part in result[0]])
         except Exception as e:
             print(f"Error parsing translation response: {e}")
+            clean_up()
     else:
         print("Translation failed with status", response.status_code)
     return ""
@@ -395,13 +399,14 @@ if video_file is not None:
         temp_folder, f"dubbed_video_{output_language}_{use_ai_transcription}.mp4")
     video.write_videofile(dubbed_video_path, codec="libx264", audio_codec="aac")
     with output_col1:
-        st.video(dubbed_video_path)
-        end_time = time.time()
-        # Calculate the elapsed time
-        elapsed_time = end_time - start_time
-        # Display the elapsed time
+        with st.spinner("🎬 Generating dubbed video..."):
+            st.video(dubbed_video_path)
+    end_time = time.time()
+    # Calculate the elapsed time
+    elapsed_time = end_time - start_time
+    # Display the elapsed time
     st.success(f"Processing completed in {elapsed_time/60:.2f} mins.")
     # Clean up temporary files
-    shutil.rmtree(temp_folder)
-    st.session_state.is_processing = False
+    clean_up()
+    
 
