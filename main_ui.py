@@ -1,6 +1,3 @@
-from speechbrain.pretrained import SpeakerRecognition
-from resemblyzer import VoiceEncoder
-import soundfile as sf
 import streamlit as st
 import os
 import subprocess
@@ -17,9 +14,9 @@ from dotenv import load_dotenv
 import ast
 import time
 import numpy as np
-import hashlib
-from pyannote.audio import Pipeline
-st.set_page_config(layout="wide")
+import sys
+
+st.set_page_config(page_title="DubSync",layout="wide")
 # Patch for librosa compatibility with numpy>=1.24
 np.complex = complex
 
@@ -43,14 +40,6 @@ client = AzureOpenAI(
     azure_endpoint=api_base,
 )
 
-# Load the speaker recognition model
-recognizer = SpeakerRecognition.from_hparams(
-    source="speechbrain/spkrec-ecapa-voxceleb",
-    savedir="tmp_spkrec"
-)
-
-# Create an encoder - requires to get voice signature
-encoder = VoiceEncoder()
 
 if "is_processing" not in st.session_state:
     st.session_state.is_processing = False
@@ -84,8 +73,16 @@ with st.sidebar:
         disabled=st.session_state.is_processing,
     )
     output_language_value = dict(languages)[output_language]
+    st.divider()
+    st.write("Transcription Options")
+    whisper_models = ["tiny", "base", "small", "medium", "large"]
+    selected_model = st.selectbox(
+        "Select Whisper model for transcription",
+        options=whisper_models,
+        index=4,  # Default to 'large'
+        disabled=st.session_state.is_processing,
+    )
     use_ai_transcription = st.toggle("Use AI for transcription", value=False, disabled=st.session_state.is_processing)
-
 
 if video_url:
     if "youtube.com" in video_url or "youtu.be" in video_url:
@@ -126,10 +123,15 @@ if video_url:
 
 def extract_audio_from_video(video_path):
     with st.spinner("🎬 Extracting audio from the video..."):
-        video = VideoFileClip(video_path)
-        audio_path = os.path.join(temp_folder, "extracted_audio.wav")
-        video.audio.write_audiofile(audio_path)
-        return audio_path
+        try:
+            video = VideoFileClip(video_path)
+            audio_path = os.path.join(temp_folder, "extracted_audio.wav")
+            video.audio.write_audiofile(audio_path)
+            return audio_path
+        except Exception as e:
+            st.error(f"Failed to extract audio: {e}")
+            sys.exit(1)
+            return None
 
 def separate_audio_layers(audio_path):
     with st.spinner("🎶 Separating audio layers..."):
@@ -139,7 +141,7 @@ def separate_audio_layers(audio_path):
 
 def transcribe_audio(audio_path):
     with st.spinner("🧠 Transcribing vocals..."):
-        model = whisper.load_model("large")
+        model = whisper.load_model(selected_model)
         result = model.transcribe(
             audio_path, language=input_language_value, word_timestamps=True, fp16=False, condition_on_previous_text=True)
         return result["segments"]
@@ -318,73 +320,12 @@ def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
         final_audio.export(translated_audio, format="wav")
         return translated_audio
 
-def pitch_detection(audio_path):
-    result = {
-        "file": os.path.basename(audio_path)
-    }
-
-    # Step 1: Voice Embedding (Unique Voice ID)
-    try:
-        embedding = recognizer.encode_batch(audio_path).squeeze().cpu().numpy()
-        # can be hashed or compared later
-        result["embedding"] = embedding.tolist()
-    except Exception as e:
-        result["embedding"] = None
-        result["error_embedding"] = str(e)
-
-    # Step 2: Gender Detection using pitch
-    try:
-        y, sr = librosa.load(audio_path, sr=None)
-        f0, voiced_flag, _ = librosa.pyin(y, fmin=75, fmax=300)
-
-        if f0 is not None and np.any(voiced_flag):
-            mean_pitch = np.nanmean(f0[voiced_flag])
-            result["mean_pitch"] = round(mean_pitch, 2)
-            result["gender"] = "Male" if mean_pitch < 165 else "Female"
-        else:
-            result["mean_pitch"] = None
-            result["gender"] = "Unknown"
-    except Exception as e:
-        result["mean_pitch"] = None
-        result["gender"] = "Error"
-        result["error_pitch"] = str(e)
-
-    return result
-
-def diarize_speakers(audio_path, hf_token):
-    """
-    Returns a list of segments with speaker labels.
-    """
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization",
-        use_auth_token=hf_token
-    )
-    diarization = pipeline(audio_path)
-    segments = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        segments.append({
-            "start": turn.start,
-            "end": turn.end,
-            "speaker": speaker
-        })
-    return segments
-
-def get_voice_signature(audio_path):
-    try:
-        wav_ref, sr = sf.read(audio_path)
-        if wav_ref.ndim > 1:
-            wav_ref = np.mean(wav_ref, axis=1)  # Convert to mono
-        embedding_ref = encoder.embed_utterance(wav_ref)
-        return hashlib.md5(embedding_ref.tobytes()).hexdigest()
-    except Exception as e:
-        print(f"Error in voice signature extraction: {e}")
-        return None
-
 # Display the uploaded video
 if video_file is not None:
     st.session_state.is_processing = True
     start_time = time.time()
     input_col1, input_col2 = st.columns(2)
+    st.divider()
     output_col1, output_col2 = st.columns(2)
     with input_col1:
         st.video(video_file, muted=False)
@@ -397,7 +338,8 @@ if video_file is not None:
     audio_path = extract_audio_from_video(uploaded_video_path)
 
     # Run Demucs to separate background audio
-    output_dir = separate_audio_layers(audio_path)
+    with input_col2:
+        output_dir = separate_audio_layers(audio_path)
 
     # Display the separated audio files
     separated_dir = os.path.join(
@@ -408,7 +350,6 @@ if video_file is not None:
     drums_path = os.path.join(separated_dir, "drums.wav")
     with input_col2:
         if os.path.exists(vocals_path) and os.path.exists(bg_music_path) and os.path.exists(bass_path) and os.path.exists(drums_path):
-            st.success("Audio separation completed!", icon="✅")
             col1, col2 = st.columns(2)
             with col1:
                 st.write("🎤 Vocals: ")
@@ -423,34 +364,10 @@ if video_file is not None:
         else:
             st.error("Audio separation failed. Please check the logs.")
 
-    # TODO: Create small segments of the audio files to recognize unique voices and translate them as per gender
+    # # TODO: Create small segments of the audio files to recognize unique voices and translate them as per gender
 
     segments = transcribe_audio(vocals_path)
 
-    with st.spinner("🗣️ Speaker Diarization..."):
-        speakers_segments = diarize_speakers(vocals_path, os.getenv("HF_TOKEN"))
-        print(f"Speaker segments: {speakers_segments}")
-
-
-    # audio = AudioSegment.from_file(audio_path)
-    # with st.spinner("🌍 Detecting pitch ..."):
-    #     audio_segments_dir = os.path.join(temp_folder, "audio_segments")
-    #     os.makedirs(audio_segments_dir, exist_ok=True)
-    #     for idx, segment in enumerate(segments):
-    #         start_time_ms = int(segment["start"] * 1000)
-    #         end_time_ms = int(segment["end"] * 1000)
-    #         audio_segment = audio[start_time_ms:end_time_ms]
-    #         path_to_save_segment = os.path.join(audio_segments_dir, f"segment_{segment["id"]}.mp3")
-    #         audio_segment.export(path_to_save_segment, format="mp3")
-    #         # # Perform pitch detection on the audio segment
-    #         # pitch_detection_result = pitch_detection(path_to_save_segment)
-    #         # segment["pitch_detection"] = pitch_detection_result
-    #         # print(f"pitch_detection_result{idx} : {pitch_detection_result}")
-    #         get_voice_signature_result = get_voice_signature(path_to_save_segment)
-    #         segment["voice_signature"] = get_voice_signature_result
-    # output_file = 'segments_voice_signature.py'
-    # with open(output_file, 'w') as f:
-    #     f.write(str(segments))
     if (use_ai_transcription):
         # Translate the segments using AI
         translated_audio = translate_with_gpt(
@@ -476,17 +393,15 @@ if video_file is not None:
     video = video.with_audio(combined_audio)
     dubbed_video_path = os.path.join(
         temp_folder, f"dubbed_video_{output_language}_{use_ai_transcription}.mp4")
-    video.write_videofile(
-        dubbed_video_path, codec="libx264", audio_codec="aac")
+    video.write_videofile(dubbed_video_path, codec="libx264", audio_codec="aac")
     with output_col1:
-        st.success("🎥 Dubbed video saved")
         st.video(dubbed_video_path)
         end_time = time.time()
         # Calculate the elapsed time
         elapsed_time = end_time - start_time
         # Display the elapsed time
-        st.success(f"Processing completed in {elapsed_time/60:.2f} mins.")
-        # Clean up temporary files
-        shutil.rmtree(temp_folder)
-        st.session_state.is_processing = False
+    st.success(f"Processing completed in {elapsed_time/60:.2f} mins.")
+    # Clean up temporary files
+    shutil.rmtree(temp_folder)
+    st.session_state.is_processing = False
 

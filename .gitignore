@@ -174,3 +174,7 @@ cython_debug/
 .pypirc
 
 resources/**
+
+venv310/** 
+venv/**
+
