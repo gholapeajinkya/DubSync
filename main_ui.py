@@ -13,8 +13,8 @@ from openai import AzureOpenAI
 from dotenv import load_dotenv
 import ast
 import time
-import numpy as np
 import sys
+import torch
 
 st.set_page_config(page_title="DubSync",layout="wide")
 
@@ -37,6 +37,8 @@ client = AzureOpenAI(
     api_version=api_version,
     azure_endpoint=api_base,
 )
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 if "is_processing" not in st.session_state:
     st.session_state.is_processing = False
@@ -139,12 +141,12 @@ def extract_audio_from_video(video_path):
 def separate_audio_layers(audio_path):
     with st.spinner("🎶 Separating audio layers..."):
         output_dir = os.path.join(temp_folder, "demucs_output")
-        subprocess.run(["demucs", "-o", output_dir, audio_path])
+        subprocess.run(["demucs", "-o", output_dir, f"--device={device}", audio_path])
         return output_dir
 
 def transcribe_audio(audio_path):
     with st.spinner("🧠 Transcribing vocals..."):
-        model = whisper.load_model(selected_model)
+        model = whisper.load_model(selected_model, device=device)
         result = model.transcribe(
             audio_path, language=input_language_value, word_timestamps=True, fp16=False, condition_on_previous_text=True)
         return result["segments"]
