@@ -1,7 +1,7 @@
 ---
 title: Anime Dubbing App
 emoji: 🗣️
-colorFrom: orange
+colorFrom: purple
 colorTo: pink
 sdk: streamlit
 app_file: app.py
