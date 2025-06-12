@@ -21,7 +21,11 @@ import json
 st.set_page_config(page_title="DubSync", layout="wide")
 
 temp_folder = "resources"
+cropped_audio_dir = os.path.join(temp_folder, "cropped_audio")
+cloned_audio_dir = os.path.join(temp_folder, "cloned_audio")
 os.makedirs(temp_folder, exist_ok=True)
+os.makedirs(cropped_audio_dir, exist_ok=True)
+os.makedirs(cloned_audio_dir, exist_ok=True)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -244,7 +248,7 @@ def generate_audio_from_segments(segments):
             end_ms = segment["end"]*1000
             duration_ms = (end_ms - start_ms)
 
-            audio_segment_path = os.path.join("tests", f"output_{idx}.wav")
+            audio_segment_path = os.path.join(cloned_audio_dir, f"output_{idx}.wav")
             spoken = AudioSegment.from_file(audio_segment_path)
 
             # Add silence before this segment if needed
@@ -391,7 +395,7 @@ def ms_to_min_sec(ms):
     return f"{minutes}:{seconds}"
 
 
-def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_file=None):
+def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, output_file=None):
     command = [
         "f5-tts_infer-cli",
         "--model", model,
@@ -402,6 +406,8 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_file=None):
     ]
     if output_file:
         command += ["--output_file", output_file]
+    if output_dir:
+        command += ["--output_dir", output_dir]
     try:
         result = subprocess.run(
             command, capture_output=True, text=True, check=True)
@@ -414,11 +420,6 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_file=None):
 
 def voice_cloning(segments, audio_path):
     audio = AudioSegment.from_file(audio_path)
-    cropped_audio_dir = os.path.join(temp_folder, "cropped_audio")
-    cropped_cloned_dir = os.path.join(temp_folder, "cloned_audio")
-    os.makedirs(cropped_audio_dir, exist_ok=True)
-    os.makedirs(cropped_cloned_dir, exist_ok=True)
-    os.makedirs(temp_folder, exist_ok=True)
     for segment in segments:
         start_ms = int(segment["start"] * 1000)
         end_ms = int(segment["end"] * 1000)
@@ -444,6 +445,7 @@ def voice_cloning(segments, audio_path):
                     ref_audio, 
                     ref_text, 
                     gen_text,
+                    output_dir=cloned_audio_dir,
                     output_file=f"output_{segment['id']}.wav"
                     )
                 if output:
@@ -519,10 +521,10 @@ if video_file is not None:
         filtered_segments = [
             {
                 "id": s.get("id"),
-                "start": ms_to_min_sec(s.get("start")),
-                "end": ms_to_min_sec(s.get("end")),
-                "duration": ms_to_min_sec((s.get("end")*1000) - (s.get("start")*1000)),
-                "no_speech_prob": round(s.get("no_speech_prob", 0) * 100, 2),
+                "start": s.get("start"),
+                "end": s.get("end"),
+                "duration": (s.get("end") - s.get("start")),
+                "no_speech_prob": f"{round(s.get('no_speech_prob', 0), 2) * 100}%",
                 "translation": s.get("translation"),
                 "text": s.get("text"),
             }

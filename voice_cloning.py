@@ -24,11 +24,11 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, config_path=None, out
         return None
 
 if __name__ == "__main__":
-    ref_audio = "sample_input/cropped_13.wav"
-    ref_text = "それじゃあ、頑張りましょうね"
-    gen_text = "Let's give it our best shot."
+    ref_audio = "sample_inputs/cropped_audio.wav"
+    ref_text = "僭越ながら今回のレイドでリーダーを務めさせていただきますソン・チオルですよろしくお願いします"
+    gen_text = "I am proud to be the leader of this raid. It's Song Chi-Ol thank you"
     config_path = "/path/to/f5-tts.yaml"  # Update this path if needed
-    output_dir = "sample_output"          # Optional: specify output directory
+    output_dir = "resources/cloned_audio"          # Optional: specify output directory
 
     run_f5_tts_infer(
         model="F5TTS_v1_Base",
@@ -36,6 +36,6 @@ if __name__ == "__main__":
         ref_text=ref_text,
         gen_text=gen_text,
         # config_path=config_path,
-        # output_dir=output_dir
+        output_dir=output_dir,
         output_file="output.wav"  # Optional: specify output file name
     )

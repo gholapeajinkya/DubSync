@@ -178,7 +178,7 @@ resources/**
 venv310/** 
 venv/**
 
-outputs/**
+sample_outputs/**
 
 tests/**
 
