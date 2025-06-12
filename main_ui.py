@@ -15,8 +15,10 @@ import ast
 import time
 import sys
 import torch
+import pandas as pd
+import json
 
-st.set_page_config(page_title="DubSync",layout="wide")
+st.set_page_config(page_title="DubSync", layout="wide")
 
 temp_folder = "resources"
 os.makedirs(temp_folder, exist_ok=True)
@@ -45,7 +47,8 @@ if "is_processing" not in st.session_state:
 
 with st.sidebar:
     # File uploader for MP4 video
-    video_file = st.file_uploader("Upload an MP4 video file", type=["mp4"], disabled=st.session_state.is_processing)
+    video_file = st.file_uploader("Upload an MP4 video file", type=[
+                                  "mp4"], disabled=st.session_state.is_processing)
     st.write("OR")
     video_url = st.text_input(
         "Enter the URL of an MP4 video (Youtube or other)", disabled=st.session_state.is_processing)
@@ -81,7 +84,8 @@ with st.sidebar:
         index=4,  # Default to 'large'
         disabled=st.session_state.is_processing,
     )
-    use_ai_transcription = st.toggle("Use AI for transcription", value=False, disabled=st.session_state.is_processing)
+    use_ai_transcription = st.toggle(
+        "Use AI for transcription", value=True, disabled=st.session_state.is_processing)
 
 if video_url:
     if "youtube.com" in video_url or "youtu.be" in video_url:
@@ -121,9 +125,11 @@ if video_url:
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
+
 def clean_up():
     shutil.rmtree(temp_folder)
     st.session_state.is_processing = False
+
 
 def extract_audio_from_video(video_path):
     with st.spinner("🎬 Extracting audio from the video..."):
@@ -138,18 +144,22 @@ def extract_audio_from_video(video_path):
             sys.exit(1)
             return None
 
+
 def separate_audio_layers(audio_path):
     with st.spinner("🎶 Separating audio layers..."):
         output_dir = os.path.join(temp_folder, "demucs_output")
-        subprocess.run(["demucs", "-o", output_dir, f"--device={device}", audio_path])
+        subprocess.run(["demucs", "-o", output_dir,
+                       f"--device={device}", audio_path])
         return output_dir
+
 
 def transcribe_audio(audio_path):
     with st.spinner("🧠 Transcribing vocals..."):
         model = whisper.load_model(selected_model, device=device)
         result = model.transcribe(
-            audio_path, language=input_language_value, word_timestamps=True, fp16=False, condition_on_previous_text=True)
+            audio_path, language=input_language_value, word_timestamps=False, fp16=False, condition_on_previous_text=True)
         return result["segments"]
+
 
 def google_text_to_speech(text, source_lang="ja", target_lang="en"):
     base_url = "https://translate.googleapis.com/translate_a/single"
@@ -174,6 +184,7 @@ def google_text_to_speech(text, source_lang="ja", target_lang="en"):
     else:
         print("Translation failed with status", response.status_code)
     return ""
+
 
 def google_translate_segments(segments, source_lang="ja", target_lang="en"):
     with st.spinner("🌍 Translating ..."):
@@ -223,16 +234,50 @@ def google_translate_segments(segments, source_lang="ja", target_lang="en"):
         final_audio.export(translated_audio, format="wav")
         return translated_audio
 
+def generate_audio_from_segments(segments):
+    with st.spinner("🌍 Generating audio from segments..."):
+        translated_audio = os.path.join(temp_folder, "translated_audio.wav")
+        final_audio = AudioSegment.silent(duration=0)
+        last_end_time = 0
+        for idx, segment in enumerate(segments):
+            start_ms = segment["start"]*1000
+            end_ms = segment["end"]*1000
+            duration_ms = (end_ms - start_ms)
+
+            audio_segment_path = os.path.join("tests", f"output_{idx}.wav")
+            spoken = AudioSegment.from_file(audio_segment_path)
+
+            # Add silence before this segment if needed
+            gap_duration = start_ms - int(last_end_time * 1000)
+            if gap_duration > 0:
+                final_audio += AudioSegment.silent(duration=gap_duration)
+
+            # Clip or pad the TTS output to exactly fit segment duration
+            if len(spoken) > duration_ms:
+                spoken = spoken[:duration_ms]
+            else:
+                spoken += AudioSegment.silent(
+                    duration=duration_ms - len(spoken))
+
+            # Add processed speech
+            final_audio += spoken
+            last_end_time = segment["end"]
+            print(
+                f"✅ Segment {idx+1}/{len(segments)} | ${segment["start"]}")
+        # 5. Save final audio
+        final_audio.export(translated_audio, format="wav")
+        return translated_audio
+
+
 def clean_response_text(text):
     text = text.strip()
     if text.startswith("```json") and text.endswith("```"):
-        # Remove the wrapping triple backticks
-        st.warning("Removing wrapping triple backticks")
         text = "\n".join(text.strip("`").split("\n")[1:])
     unwanted_prefix = f"Here's the rewritten script for the dubbing:"
     if text.startswith(unwanted_prefix):
         text = text[len(unwanted_prefix):].strip()
     return text
+
 
 def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
     with st.spinner(f"Translating segments using AI..."):
@@ -281,50 +326,135 @@ def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
         response_segment = clean_response_text(response_segment)
         print(f"translate_with_gpt response => \n{response_segment}")
         ai_segments = ast.literal_eval(str(response_segment))
-        translated_audio = os.path.join(temp_folder, "translated_audio.wav")
-        final_audio = AudioSegment.silent(duration=0)
-        last_end_time = 0
-        for idx, (segment, ai_segment) in enumerate(zip(segments, ai_segments)):
-            start_ms = segment["start"]*1000
-            end_ms = segment["end"]*1000
-            duration_ms = (end_ms - start_ms)
-            original_text = ai_segment["text"]
-            # Translate
-            try:
-                translation = google_text_to_speech(
-                    original_text, source_lang, target_lang)
-                if translation:
-                    segment["translation"] = translation
-            except Exception as e:
-                print(f"Translation failed for segment {idx}: {e}")
-                translation = "..."
+        # Map ai_segments by id for quick lookup
+        ai_segments_dict = {s["id"]: s for s in ai_segments}
+        # Add translated text into segments
+        for segment in segments:
+            ai_seg = ai_segments_dict.get(segment["id"])
+            if ai_seg and "translation" in ai_seg:
+                segment["translation"] = ai_seg["translation"]
+            elif ai_seg and "text" in ai_seg:  # fallback if key is 'text'
+                segment["translation"] = ai_seg["text"]
+        print("Segments after translation:", segments)
+        return segments
+        # translated_audio = os.path.join(temp_folder, "translated_audio.wav")
+        # final_audio = AudioSegment.silent(duration=0)
+        # last_end_time = 0
+        # for idx, (segment, ai_segment) in enumerate(zip(segments, ai_segments)):
+        #     start_ms = segment["start"]*1000
+        #     end_ms = segment["end"]*1000
+        #     duration_ms = (end_ms - start_ms)
+        #     original_text = ai_segment["text"]
+        #     # Translate
+        #     try:
+        #         translation = google_text_to_speech(
+        #             original_text, source_lang, target_lang)
+        #         if translation:
+        #             segment["translation"] = translation
+        #     except Exception as e:
+        #         print(f"Translation failed for segment {idx}: {e}")
+        #         translation = "..."
 
-            # TTS
-            tts = gTTS(text=translation, lang='en')
-            segment_path = os.path.join(temp_folder, f"segment_{idx}.mp3")
-            tts.save(segment_path)
-            spoken = AudioSegment.from_file(segment_path)
+        # TTS
+        # TODO: Make sure translation is not empty
+        # tts = gTTS(text=translation, lang='en')
+        # segment_path = os.path.join(temp_folder, f"segment_{idx}.mp3")
+        # tts.save(segment_path)
+        # spoken = AudioSegment.from_file(segment_path)
 
-            # Add silence before this segment if needed
-            gap_duration = start_ms - int(last_end_time * 1000)
-            if gap_duration > 0:
-                final_audio += AudioSegment.silent(duration=gap_duration)
+        # # Add silence before this segment if needed
+        # gap_duration = start_ms - int(last_end_time * 1000)
+        # if gap_duration > 0:
+        #     final_audio += AudioSegment.silent(duration=gap_duration)
 
-            # Clip or pad the TTS output to exactly fit segment duration
-            if len(spoken) > duration_ms:
-                spoken = spoken[:duration_ms]
-            else:
-                spoken += AudioSegment.silent(
-                    duration=duration_ms - len(spoken))
+        # # Clip or pad the TTS output to exactly fit segment duration
+        # if len(spoken) > duration_ms:
+        #     spoken = spoken[:duration_ms]
+        # else:
+        #     spoken += AudioSegment.silent(
+        #         duration=duration_ms - len(spoken))
 
-            # Add processed speech
-            final_audio += spoken
-            last_end_time = segment["end"]
-            print(
-                f"✅ Segment {idx+1}/{len(segments)} | {segment["start"]} {translation}")
+        # # Add processed speech
+        # final_audio += spoken
+        # last_end_time = segment["end"]
+        # print(
+        #     f"✅ Segment {idx+1}/{len(segments)} | {segment["start"]} {translation}")
         # 5. Save final audio
-        final_audio.export(translated_audio, format="wav")
-        return translated_audio
+        # final_audio.export(translated_audio, format="wav")
+        # return translated_audio
+
+
+def ms_to_min_sec(ms):
+    seconds = int(ms // 1000)
+    minutes = seconds // 60
+    seconds = seconds % 60
+    return f"{minutes}:{seconds}"
+
+
+def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_file=None):
+    command = [
+        "f5-tts_infer-cli",
+        "--model", model,
+        "--ref_audio", ref_audio,
+        "--ref_text", ref_text,
+        "--gen_text", gen_text,
+        "--speed", "0.7"
+    ]
+    if output_file:
+        command += ["--output_file", output_file]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, check=True)
+        print("Command output:", result.stdout)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print("Error:", e.stderr)
+        return None
+
+
+def voice_cloning(segments, audio_path):
+    audio = AudioSegment.from_file(audio_path)
+    cropped_audio_dir = os.path.join(temp_folder, "cropped_audio")
+    cropped_cloned_dir = os.path.join(temp_folder, "cloned_audio")
+    os.makedirs(cropped_audio_dir, exist_ok=True)
+    os.makedirs(cropped_cloned_dir, exist_ok=True)
+    os.makedirs(temp_folder, exist_ok=True)
+    for segment in segments:
+        start_ms = int(segment["start"] * 1000)
+        end_ms = int(segment["end"] * 1000)
+        cropped = audio[start_ms:end_ms]
+        cropped.export(os.path.join(cropped_audio_dir,
+                        f"cropped_{segment['id']}.wav"), format="wav")
+    try:
+        for segment in segments:
+            ref_audio = os.path.join(
+                cropped_audio_dir, f"cropped_{segment['id']}.wav")
+            ref_text = segment["text"]
+            gen_text = segment["translation"]
+            # Check if ref_text and gen_text are not empty
+            if not ref_text or not gen_text:
+                print(
+                    f"Skipping segment {segment} due to empty ref_text or gen_text")
+                continue
+            if gen_text:
+                print(
+                    f"Running F5 TTS Infer for segment {segment['id']} with ref_text: {ref_text} and gen_text: {gen_text}")
+                output = run_f5_tts_infer(
+                    "F5TTS_v1_Base", 
+                    ref_audio, 
+                    ref_text, 
+                    gen_text,
+                    output_file=f"output_{segment['id']}.wav"
+                    )
+                if output:
+                    print(
+                        f"F5 TTS Infer output for segment {segment['id']}: {output}")
+    except Exception as e:
+        st.error(f"Voice cloning failed: {e}")
+        # clean_up()
+        sys.exit(1)
+        return None
+
 
 # Display the uploaded video
 if video_file is not None:
@@ -376,16 +506,36 @@ if video_file is not None:
 
     if (use_ai_transcription):
         # Translate the segments using AI
-        translated_audio = translate_with_gpt(
+        segments = translate_with_gpt(
             segments, source_lang=input_language_value, target_lang=output_language_value)
     else:
         # Translate the segments using Google Translate
         translated_audio = google_translate_segments(
             segments, source_lang=input_language_value, target_lang=output_language_value)
     with output_col2:
-        st.write("🎤 Translated audio: ")
-        st.audio(translated_audio)
+        with open(f"output_segments-{use_ai_transcription}.py", "w", encoding="utf-8") as f:
+            json.dump(segments, f, ensure_ascii=False, indent=4)
 
+        filtered_segments = [
+            {
+                "id": s.get("id"),
+                "start": ms_to_min_sec(s.get("start")),
+                "end": ms_to_min_sec(s.get("end")),
+                "duration": ms_to_min_sec((s.get("end")*1000) - (s.get("start")*1000)),
+                "no_speech_prob": round(s.get("no_speech_prob", 0) * 100, 2),
+                "translation": s.get("translation"),
+                "text": s.get("text"),
+            }
+            for s in segments
+        ]
+        df = pd.DataFrame(filtered_segments)
+        st.data_editor(df, use_container_width=True,
+                       hide_index=True, num_rows="dynamic", disabled=True)
+    with output_col1:
+        with st.spinner("🤖 Cloning voice..."):
+            voice_cloning(segments, vocals_path)
+
+    translated_audio = generate_audio_from_segments(segments)
     video = VideoFileClip(uploaded_video_path)
 
     translated_audio = AudioFileClip(translated_audio)
@@ -399,16 +549,16 @@ if video_file is not None:
     video = video.with_audio(combined_audio)
     dubbed_video_path = os.path.join(
         temp_folder, f"dubbed_video_{output_language}_{use_ai_transcription}.mp4")
-    video.write_videofile(dubbed_video_path, codec="libx264", audio_codec="aac")
+    video.write_videofile(
+        dubbed_video_path, codec="libx264", audio_codec="aac")
     with output_col1:
         with st.spinner("🎬 Generating dubbed video..."):
             st.video(dubbed_video_path)
     end_time = time.time()
-    # Calculate the elapsed time
+    # # Calculate the elapsed time
     elapsed_time = end_time - start_time
+    elapsed_minutes = round(elapsed_time / 60, 2)
     # Display the elapsed time
-    st.success(f"Processing completed in {elapsed_time/60:.2f} mins.")
+    st.success(f"Processing completed in {elapsed_minutes} mins.")
     # Clean up temporary files
     clean_up()
-    
-

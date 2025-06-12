@@ -178,3 +178,10 @@ resources/**
 venv310/** 
 venv/**
 
+outputs/**
+
+tests/**
+
+sample_inputs/**
+
+.DS_Store
