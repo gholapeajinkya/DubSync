@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from moviepy import VideoFileClip, AudioFileClip, CompositeAudioClip
 import whisper
 from pydub import AudioSegment
@@ -49,7 +50,6 @@ def clean_up():
     shutil.rmtree(temp_folder)
     st.session_state.is_processing = False
 
-
 def extract_audio_from_video(video_path):
     with st.spinner("🎬 Extracting audio from the video..."):
         try:
@@ -76,7 +76,6 @@ def transcribe_audio(audio_path):
         result = model.transcribe(
             audio_path, language=input_language_value, word_timestamps=False, fp16=False, condition_on_previous_text=True)
         return result["segments"]
-
 
 def generate_audio_from_segments(segments):
     with st.spinner("🌍 Generating audio from segments..."):
@@ -122,7 +121,6 @@ def clean_response_text(text):
         text = text[len(unwanted_prefix):].strip()
     return text
 
-
 def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
     with st.spinner(f"Translating segments using AI..."):
         # Rewrite the translation using GPT
@@ -166,7 +164,6 @@ def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
         )
         response_segment = clean_response_text(
             response.choices[0].message.content.strip())
-        print("==============================================================================================")
         response_segment = clean_response_text(response_segment)
         print(f"translate_with_gpt response => \n{response_segment}")
         ai_segments = ast.literal_eval(str(response_segment))
@@ -179,53 +176,7 @@ def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
                 segment["translation"] = ai_seg["translation"]
             elif ai_seg and "text" in ai_seg:  # fallback if key is 'text'
                 segment["translation"] = ai_seg["text"]
-        print("Segments after translation:", segments)
         return segments
-        # translated_audio = os.path.join(temp_folder, "translated_audio.wav")
-        # final_audio = AudioSegment.silent(duration=0)
-        # last_end_time = 0
-        # for idx, (segment, ai_segment) in enumerate(zip(segments, ai_segments)):
-        #     start_ms = segment["start"]*1000
-        #     end_ms = segment["end"]*1000
-        #     duration_ms = (end_ms - start_ms)
-        #     original_text = ai_segment["text"]
-        #     # Translate
-        #     try:
-        #         translation = google_text_to_speech(
-        #             original_text, source_lang, target_lang)
-        #         if translation:
-        #             segment["translation"] = translation
-        #     except Exception as e:
-        #         print(f"Translation failed for segment {idx}: {e}")
-        #         translation = "..."
-
-        # TTS
-        # TODO: Make sure translation is not empty
-        # tts = gTTS(text=translation, lang='en')
-        # segment_path = os.path.join(temp_folder, f"segment_{idx}.mp3")
-        # tts.save(segment_path)
-        # spoken = AudioSegment.from_file(segment_path)
-
-        # # Add silence before this segment if needed
-        # gap_duration = start_ms - int(last_end_time * 1000)
-        # if gap_duration > 0:
-        #     final_audio += AudioSegment.silent(duration=gap_duration)
-
-        # # Clip or pad the TTS output to exactly fit segment duration
-        # if len(spoken) > duration_ms:
-        #     spoken = spoken[:duration_ms]
-        # else:
-        #     spoken += AudioSegment.silent(
-        #         duration=duration_ms - len(spoken))
-
-        # # Add processed speech
-        # final_audio += spoken
-        # last_end_time = segment["end"]
-        # print(
-        #     f"✅ Segment {idx+1}/{len(segments)} | {segment["start"]} {translation}")
-        # 5. Save final audio
-        # final_audio.export(translated_audio, format="wav")
-        # return translated_audio
 
 def ms_to_min_sec(ms):
     seconds = int(ms // 1000)
@@ -255,45 +206,65 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, outp
         print("Error:", e.stderr)
         return None
 
+def run_cloning_multithreaded(segments, max_threads=4):
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = [executor.submit(run_f5_tts_infer, seg) for seg in segments]
+        for future in as_completed(futures):
+            print(future.result())
 
-def voice_cloning(segments, audio_path):
+def voice_cloning(segments, audio_path, max_threads=4):
     audio = AudioSegment.from_file(audio_path)
-    for segment in segments:
-        start_ms = int(segment["start"] * 1000)
-        end_ms = int(segment["end"] * 1000)
-        cropped = audio[start_ms:end_ms]
-        cropped.export(os.path.join(cropped_audio_dir,
-                                    f"cropped_{segment['id']}.wav"), format="wav")
-    try:
+    crop_audio_futures = []
+    with st.spinner("🔊 Cropping audio segments..."):
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            for segment in segments:
+                start_ms = int(segment["start"] * 1000)
+                end_ms = int(segment["end"] * 1000)
+                cropped = audio[start_ms:end_ms]
+                output_file = os.path.join(cropped_audio_dir, f"cropped_{segment['id']}.wav")
+                crop_audio_futures.append(executor.submit(cropped.export, output_file, format="wav"))
+        # Wait for all cropping tasks to complete
+        for future in as_completed(crop_audio_futures):
+            try:
+                future.result()  # This will raise an exception if the export failed
+            except Exception as e:
+                st.error(f"Error cropping audio: {e}")
+                clean_up()
+                sys.exit(1)
+                return None
+    with st.spinner("🤖 Cloning voice..."):
         for segment in segments:
-            ref_audio = os.path.join(
-                cropped_audio_dir, f"cropped_{segment['id']}.wav")
-            ref_text = segment["text"]
-            gen_text = segment["translation"]
-            # Check if ref_text and gen_text are not empty
-            if not ref_text or not gen_text:
-                print(
-                    f"Skipping segment {segment} due to empty ref_text or gen_text")
-                continue
-            if gen_text:
-                print(
-                    f"Running F5 TTS Infer for segment {segment['id']} with ref_text: {ref_text} and gen_text: {gen_text}")
-                output = run_f5_tts_infer(
-                    "F5TTS_v1_Base",
-                    ref_audio,
-                    ref_text,
-                    gen_text,
-                    output_dir=cloned_audio_dir,
-                    output_file=f"output_{segment['id']}.wav"
-                )
-                if output:
-                    print(
-                        f"F5 TTS Infer output for segment {segment['id']}: {output}")
-    except Exception as e:
-        st.error(f"Voice cloning failed: {e}")
-        # clean_up()
-        sys.exit(1)
-        return None
+            start_ms = int(segment["start"] * 1000)
+            end_ms = int(segment["end"] * 1000)
+            cropped = audio[start_ms:end_ms]
+            cropped.export(os.path.join(cropped_audio_dir,f"cropped_{segment['id']}.wav"), format="wav")
+        try:
+            with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                futures = []
+                for segment in segments:
+                    ref_audio = os.path.join(
+                        cropped_audio_dir, f"cropped_{segment['id']}.wav")
+                    ref_text = segment["text"]
+                    gen_text = segment["translation"]
+                    # Check if ref_text and gen_text are not empty
+                    if not ref_text or not gen_text:
+                        print(f"Skipping segment {segment} due to empty ref_text or gen_text")
+                        continue
+                    if gen_text:
+                        future = executor.submit(run_f5_tts_infer, "F5TTS_v1_Base", 
+                                                ref_audio, ref_text, gen_text,
+                                                output_dir=cloned_audio_dir,
+                                                output_file=f"output_{segment['id']}.wav")
+                        futures.append(future)
+                for future in as_completed(futures):
+                    output = future.result()
+                    print(f"F5 TTS Infer output: {output}")
+
+        except Exception as e:
+            st.error(f"Voice cloning failed: {e}")
+            clean_up()
+            sys.exit(1)
+            return None
 
 
 if __name__ == "__main__":
@@ -448,8 +419,7 @@ if __name__ == "__main__":
                 sample_output_dir, f"output_segments.csv")
             df.to_csv(segments_csv_path, index=False, encoding="utf-8")
         with output_col1:
-            with st.spinner("🤖 Cloning voice..."):
-                voice_cloning(segments, vocals_path)
+            voice_cloning(segments, vocals_path)
 
         translated_audio = generate_audio_from_segments(segments)
         video = VideoFileClip(uploaded_video_path)

@@ -5,7 +5,7 @@ deactivate
 
 ## How to Run
 `
-streamlit run main_ui.py
+streamlit run app.py
 `
 
 (Streamlit)[https://docs.streamlit.io/develop/api-reference/layout]
@@ -52,3 +52,9 @@ https://github.com/suno-ai/bark?tab=readme-ov-file
 
 https://huggingface.co/spaces/suno/bark
 
+
+
+Previously used to take around 10-12 mins for 2 min video
+
+- With 4 threads for voice cloning = 5 mins
+- With 4 threads for segment audio cropping = 4.32 mins
