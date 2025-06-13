@@ -18,14 +18,18 @@ import torch
 import pandas as pd
 import json
 
-st.set_page_config(page_title="DubSync", layout="wide")
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
+st.set_page_config(page_title=f"DubSync ({device})", layout="wide")
+
+sample_output_dir = "sample_outputs"
 temp_folder = "resources"
 cropped_audio_dir = os.path.join(temp_folder, "cropped_audio")
 cloned_audio_dir = os.path.join(temp_folder, "cloned_audio")
 os.makedirs(temp_folder, exist_ok=True)
 os.makedirs(cropped_audio_dir, exist_ok=True)
 os.makedirs(cloned_audio_dir, exist_ok=True)
+os.makedirs(sample_output_dir, exist_ok=True)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -44,7 +48,6 @@ client = AzureOpenAI(
     azure_endpoint=api_base,
 )
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 if "is_processing" not in st.session_state:
     st.session_state.is_processing = False
@@ -515,16 +518,13 @@ if video_file is not None:
         translated_audio = google_translate_segments(
             segments, source_lang=input_language_value, target_lang=output_language_value)
     with output_col2:
-        with open(f"output_segments-{use_ai_transcription}.py", "w", encoding="utf-8") as f:
-            json.dump(segments, f, ensure_ascii=False, indent=4)
-
         filtered_segments = [
             {
                 "id": s.get("id"),
                 "start": s.get("start"),
                 "end": s.get("end"),
                 "duration": (s.get("end") - s.get("start")),
-                "no_speech_prob": f"{round(s.get('no_speech_prob', 0), 2) * 100}%",
+                "speech_prob": f"{round(s.get('no_speech_prob', 0), 2) * 100}%",
                 "translation": s.get("translation"),
                 "text": s.get("text"),
             }
@@ -533,6 +533,8 @@ if video_file is not None:
         df = pd.DataFrame(filtered_segments)
         st.data_editor(df, use_container_width=True,
                        hide_index=True, num_rows="dynamic", disabled=True)
+        segments_csv_path = os.path.join(sample_output_dir, f"output_segments-{use_ai_transcription}.csv")
+        df.to_csv(segments_csv_path, index=False, encoding="utf-8")
     with output_col1:
         with st.spinner("🤖 Cloning voice..."):
             voice_cloning(segments, vocals_path)
@@ -550,7 +552,7 @@ if video_file is not None:
 
     video = video.with_audio(combined_audio)
     dubbed_video_path = os.path.join(
-        temp_folder, f"dubbed_video_{output_language}_{use_ai_transcription}.mp4")
+        sample_output_dir, f"dubbed_video_{output_language}_{use_ai_transcription}.mp4")
     video.write_videofile(
         dubbed_video_path, codec="libx264", audio_codec="aac")
     with output_col1:
