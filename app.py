@@ -77,7 +77,7 @@ def transcribe_audio(audio_path):
             audio_path, language=input_language_value, word_timestamps=False, fp16=False, condition_on_previous_text=True)
         return result["segments"]
 
-def generate_audio_from_segments(segments):
+def generate_audio_from_segments(segments, original_audio_path):
     with st.spinner("🌍 Generating audio from segments..."):
         translated_audio = os.path.join(temp_folder, "translated_audio.wav")
         final_audio = AudioSegment.silent(duration=0)
@@ -94,7 +94,12 @@ def generate_audio_from_segments(segments):
             # Add silence before this segment if needed
             gap_duration = start_ms - int(last_end_time * 1000)
             if gap_duration > 0:
-                final_audio += AudioSegment.silent(duration=gap_duration)
+                original_audio = AudioSegment.from_file(original_audio_path)
+                gap_start = int(last_end_time * 1000)
+                gap_end = int(start_ms)
+                gap_audio = original_audio[gap_start:gap_end]
+                final_audio += gap_audio
+                # final_audio += AudioSegment.silent(duration=gap_duration)
 
             # Clip or pad the TTS output to exactly fit segment duration
             if len(spoken) > duration_ms:
@@ -421,7 +426,7 @@ if __name__ == "__main__":
         with output_col1:
             voice_cloning(segments, vocals_path)
 
-        translated_audio = generate_audio_from_segments(segments)
+        translated_audio = generate_audio_from_segments(segments, audio_path)
         video = VideoFileClip(uploaded_video_path)
 
         translated_audio = AudioFileClip(translated_audio)
