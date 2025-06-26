@@ -4,15 +4,64 @@ DubSync is a Streamlit-based application for automated video dubbing. It enables
 
 ## Features
 
-- Upload or download MP4 videos (including YouTube support)
-- Extracts and separates audio layers (vocals, background, drums, bass) using Demucs
-- Transcribes speech using OpenAI Whisper (multiple models supported)
-- Translates dialogue using Google Translate or Azure OpenAI GPT-4
-- Optionally rewrites translations for natural, expressive dubbing
-- Clones voices for each segment using F5 TTS
-- Reconstructs and merges dubbed audio with original music and video
-- Outputs a fully dubbed video in the selected language
+- ✅ Upload or provide a YouTube video URL
+- 🧠 Transcribe dialogue with OpenAI Whisper
+- 🌐 Rewrite translations using Azure OpenAI (GPT-4)
+- 🎤 Clone voices using F5-TTS with reference audio
+- 🎼 Separate vocals & background using Demucs
+- 🎚️ Sync re-synthesized voices with original timing
+- 🎛️ Multi-threaded processing for speed
+- 🧹 Cleanup temporary resources easily
+- 🧪 Streamlit UI with real-time previews
 
+## 📂 Folder Structure
+anime-dubbing/
+├── main_app.py # Streamlit entry point
+├── .env # Environment variables
+├── requirements.txt # Python dependencies
+├── resources/ # Temp directory for processing
+│ ├── cropped_audio/ # Cropped voice clips
+│ ├── cloned_audio/ # F5-TTS output
+│ └── demucs_output/ # Demucs separated layers
+├── sample_outputs/ # Final results
+
+## ⚙️ Tech Stack
+
+| Task                     | Tool / Library        |
+|--------------------------|------------------------|
+| Transcription            | OpenAI Whisper         |
+| AI Translation Rewrite   | Azure OpenAI (GPT-4)   |
+| Voice Cloning            | F5-TTS CLI             |
+| Audio Separation         | Demucs                 |
+| Audio Processing         | pydub, moviepy         |
+| UI                       | Streamlit              |
+
+---
+
+## 🚀 How It Works
+
+1. **Upload or Input Video**
+   - Either upload `.mp4` or provide a YouTube URL
+
+2. **Audio Extraction & Separation**
+   - Extracts audio and uses Demucs to split vocals/background
+
+3. **Transcription**
+   - Transcribes vocals using Whisper (selectable model)
+
+4. **Translation & Script Rewriting**
+   - GPT-4 rewrites translations with emotion, fillers, and timing awareness
+
+5. **Voice Cloning**
+   - F5-TTS clones voice using segment reference audio and generates matching speech
+
+6. **Audio Assembly**
+   - Audio segments are aligned and merged with original music
+
+7. **Final Video Creation**
+   - Reassembled into a final dubbed video with lips approximately in sync
+
+---
 ## Requirements
 
 - Python 3.10+
