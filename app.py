@@ -63,6 +63,7 @@ def extract_audio_from_video(video_path):
             sys.exit(1)
             return None
 
+
 def separate_audio_layers(audio_path):
     with st.spinner("🎶 Separating audio layers..."):
         output_dir = os.path.join(temp_folder, "demucs_output")
@@ -71,6 +72,8 @@ def separate_audio_layers(audio_path):
         return output_dir
 
 def transcribe_audio(audio_path):
+    # TODO: Add support for multiple languages
+    # TODO: Try faster_whisper for faster transcription
     with st.spinner("🧠 Transcribing vocals..."):
         model = whisper.load_model(selected_model, device=device)
         result = model.transcribe(
@@ -111,11 +114,11 @@ def generate_audio_from_segments(segments, original_audio_path):
             # Add processed speech
             final_audio += spoken
             last_end_time = segment["end"]
-            print(
-                f"✅ Segment {idx+1}/{len(segments)} | ${segment["start"]}")
+            print(f"Segment {idx+1}/{len(segments)} | {segment['start']}")
         # 5. Save final audio
         final_audio.export(translated_audio, format="wav")
         return translated_audio
+
 
 def clean_response_text(text):
     text = text.strip()
@@ -183,13 +186,9 @@ def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
                 segment["translation"] = ai_seg["text"]
         return segments
 
-def ms_to_min_sec(ms):
-    seconds = int(ms // 1000)
-    minutes = seconds // 60
-    seconds = seconds % 60
-    return f"{minutes}:{seconds}"
 
 def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, output_file=None):
+    # TODO: Add multilingual support
     command = [
         "f5-tts_infer-cli",
         "--model", model,
@@ -226,8 +225,10 @@ def voice_cloning(segments, audio_path, max_threads=4):
                 start_ms = int(segment["start"] * 1000)
                 end_ms = int(segment["end"] * 1000)
                 cropped = audio[start_ms:end_ms]
-                output_file = os.path.join(cropped_audio_dir, f"cropped_{segment['id']}.wav")
-                crop_audio_futures.append(executor.submit(cropped.export, output_file, format="wav"))
+                output_file = os.path.join(
+                    cropped_audio_dir, f"cropped_{segment['id']}.wav")
+                crop_audio_futures.append(executor.submit(
+                    cropped.export, output_file, format="wav"))
         # Wait for all cropping tasks to complete
         for future in as_completed(crop_audio_futures):
             try:
@@ -242,7 +243,8 @@ def voice_cloning(segments, audio_path, max_threads=4):
             start_ms = int(segment["start"] * 1000)
             end_ms = int(segment["end"] * 1000)
             cropped = audio[start_ms:end_ms]
-            cropped.export(os.path.join(cropped_audio_dir,f"cropped_{segment['id']}.wav"), format="wav")
+            cropped.export(os.path.join(cropped_audio_dir,
+                           f"cropped_{segment['id']}.wav"), format="wav")
         try:
             with ThreadPoolExecutor(max_workers=max_threads) as executor:
                 futures = []
@@ -253,13 +255,14 @@ def voice_cloning(segments, audio_path, max_threads=4):
                     gen_text = segment["translation"]
                     # Check if ref_text and gen_text are not empty
                     if not ref_text or not gen_text:
-                        print(f"Skipping segment {segment} due to empty ref_text or gen_text")
+                        print(
+                            f"Skipping segment {segment} due to empty ref_text or gen_text")
                         continue
                     if gen_text:
-                        future = executor.submit(run_f5_tts_infer, "F5TTS_v1_Base", 
-                                                ref_audio, ref_text, gen_text,
-                                                output_dir=cloned_audio_dir,
-                                                output_file=f"output_{segment['id']}.wav")
+                        future = executor.submit(run_f5_tts_infer, "F5TTS_v1_Base",
+                                                 ref_audio, ref_text, gen_text,
+                                                 output_dir=cloned_audio_dir,
+                                                 output_file=f"output_{segment['id']}.wav")
                         futures.append(future)
                 for future in as_completed(futures):
                     output = future.result()
@@ -272,24 +275,30 @@ def voice_cloning(segments, audio_path, max_threads=4):
             return None
 
 
+def set_processing(value=True):
+    st.session_state.is_processing = value
+
+
 if __name__ == "__main__":
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
 
     with st.sidebar:
         # File uploader for MP4 video
+        st.write("Video Input Options")
         video_file = st.file_uploader("Upload an MP4 video file", type=[
-            "mp4"], disabled=st.session_state.is_processing)
+            "mp4"], disabled=st.session_state.is_processing, on_change=set_processing, args=(True,))
         st.write("OR")
         video_url = st.text_input(
-            "Enter the URL of an MP4 video (Youtube or other)", disabled=st.session_state.is_processing)
+            "Enter the URL of an MP4 video (Youtube or other)",
+            disabled=st.session_state.is_processing,
+            on_change=set_processing,  # Will pass value below
+            args=(True,)
+        )
         st.divider()
 
         st.write("Input Language")
-        languages = [("Japanese", "ja"), ("English", "en"),
-                     ("Chinese", "zh"), ("Korean", "ko"),
-                     ("Hindi", "hi"), ("Marathi", "mr"), ("Spanish", "es"),
-                     ("French", "fr"), ("German", "de")]
+        languages = [("Japanese", "ja"), ("English", "en"), ("Chinese", "zh")]
 
         input_language = st.selectbox(
             "Select the language of the original video",
@@ -308,7 +317,8 @@ if __name__ == "__main__":
         output_language_value = dict(languages)[output_language]
         st.divider()
         st.write("Transcription Options")
-        whisper_models = ["tiny", "base", "small", "medium", "large"]
+        whisper_models = ["tiny", "base", "small",
+                          "medium", "large", "large-v2", "large-v3"]
         selected_model = st.selectbox(
             "Select Whisper model for transcription",
             options=whisper_models,
@@ -343,15 +353,15 @@ if __name__ == "__main__":
                 with st.spinner("Downloading video from URL..."):
                     response = requests.get(video_url, stream=True)
                     if response.status_code == 200:
-                        video_file = response.raw
                         uploaded_video_path = os.path.join(
                             temp_folder, "uploaded_video.mp4")
                         with open(uploaded_video_path, "wb") as f:
-                            shutil.copyfileobj(response.raw, f)
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
                         st.success("Video downloaded successfully!")
                     else:
-                        st.error(
-                            "Failed to download video. Please check the URL.")
+                        st.error("Failed to download video. Please check the URL.")
             except Exception as e:
                 st.error(f"An error occurred: {e}")
 
@@ -408,10 +418,10 @@ if __name__ == "__main__":
             filtered_segments = [
                 {
                     "id": s.get("id"),
-                    "start": s.get("start"),
-                    "end": s.get("end"),
-                    "duration": (s.get("end") - s.get("start")),
-                    "speech_prob": f"{round(s.get('no_speech_prob', 0), 2) * 100}%",
+                    "start (sec)": s.get("start"),
+                    "end (sec)": s.get("end"),
+                    "duration (sec)": (s.get("end") - s.get("start")),
+                    "speech_prob": f"{round(round(s.get('no_speech_prob', 0), 2) * 100, 2)}%",
                     "translation": s.get("translation"),
                     "text": s.get("text"),
                 }
