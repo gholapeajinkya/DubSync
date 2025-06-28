@@ -297,7 +297,7 @@ if __name__ == "__main__":
         )
         st.divider()
 
-        st.write("Input Language")
+        st.write("Language Options")
         languages = [("Japanese", "ja"), ("English", "en"), ("Chinese", "zh")]
 
         input_language = st.selectbox(
