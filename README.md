@@ -15,15 +15,17 @@ DubSync is a Streamlit-based application for automated video dubbing. It enables
 - 🧪 Streamlit UI with real-time previews
 
 ## 📂 Folder Structure
-anime-dubbing/
-├── main_app.py # Streamlit entry point
-├── .env # Environment variables
-├── requirements.txt # Python dependencies
-├── resources/ # Temp directory for processing
-│ ├── cropped_audio/ # Cropped voice clips
-│ ├── cloned_audio/ # F5-TTS output
-│ └── demucs_output/ # Demucs separated layers
-├── sample_outputs/ # Final results
+```text
+DubSync/
+├── app.py                # Streamlit entry point
+├── .env                  # Environment variables
+├── requirements.txt      # Python dependencies
+├── resources/            # Temp directory for processing
+│   ├── cropped_audio/    # Cropped voice clips
+│   ├── cloned_audio/     # F5-TTS output
+│   └── demucs_output/    # Demucs separated layers
+├── sample_outputs/       # sample results
+```
 
 ## ⚙️ Tech Stack
 
@@ -103,5 +105,17 @@ anime-dubbing/
 Run the Streamlit app:
 
 ```sh
-streamlit run [app.py](http://_vscodecontentref_/2)
+streamlit run app.py
 ```
+
+## Whisper Models:
+
+| Model      | Speed    | Accuracy   | Size      |
+|------------|----------|------------|-----------|
+| `tiny`     | Fastest  | Lowest     | ~39 MB    |
+| `base`     | Fast     | Low-Medium | ~74 MB    |
+| `small`    | Medium   | Medium     | ~244 MB   |
+| `medium`   | Slower   | High       | ~769 MB   |
+| `large`    | Slowest  | Highest    | ~1.55 GB  |
+| `large-v2` | Slowest  | Highest    | ~1.55 GB  |
+| `large-v3` | Slowest  | Highest    | ~1.55 GB  |

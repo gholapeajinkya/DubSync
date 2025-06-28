@@ -52,9 +52,17 @@ https://github.com/suno-ai/bark?tab=readme-ov-file
 
 https://huggingface.co/spaces/suno/bark
 
+https://docs.coqui.ai/en/latest/models/xtts.html
+
 
 
 Previously used to take around 10-12 mins for 2 min video
 
 - With 4 threads for voice cloning = 5 mins
 - With 4 threads for segment audio cropping = 4.32 mins
+
+
+https://drive.google.com/file/d/1fEwX7Tm9ZGJ5mn_gqPDjAnSQ-GnimGt2/view?usp=sharing
+
+
+https://drive.google.com/uc?export=download&id=1fEwX7Tm9ZGJ5mn_gqPDjAnSQ-GnimGt2
