@@ -219,12 +219,6 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, outp
         print("Error:", e.stderr)
         return None
 
-def run_cloning_multithreaded(segments, max_threads=4):
-    with ThreadPoolExecutor(max_workers=max_threads) as executor:
-        futures = [executor.submit(run_f5_tts_infer, seg) for seg in segments]
-        for future in as_completed(futures):
-            print(future.result())
-
 def voice_cloning(segments, audio_path, max_threads=4):
     audio = AudioSegment.from_file(audio_path)
     crop_audio_futures = []
