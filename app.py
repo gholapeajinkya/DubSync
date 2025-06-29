@@ -71,10 +71,19 @@ def separate_audio_layers(audio_path):
                        f"--device={device}", audio_path])
         return output_dir
 
+def is_model_cached(model_name):
+    cache_dir = os.path.expanduser("~/.cache/whisper")
+    model_files = [f"{model_name}.pt"]
+    return all(os.path.exists(os.path.join(cache_dir, f)) for f in model_files)
+
 def transcribe_audio(audio_path):
     # TODO: Add support for multiple languages
     # TODO: Try faster_whisper for faster transcription
-    with st.spinner("🧠 Transcribing vocals..."):
+    if not is_model_cached(selected_model):
+        message = f"Model {selected_model} not found in cache. It will be downloaded."
+    else:
+        message = f"Model {selected_model} is already cached. Transcribing vocals..."
+    with st.spinner(message):
         model = whisper.load_model(selected_model, device=device)
         result = model.transcribe(
             audio_path, language=input_language_value, word_timestamps=False, fp16=False, condition_on_previous_text=True)
@@ -286,11 +295,11 @@ if __name__ == "__main__":
     with st.sidebar:
         # File uploader for MP4 video
         st.write("Video Input Options")
-        video_file = st.file_uploader("Upload an MP4 video file", type=[
+        video_file = st.file_uploader("Upload a MP4 video file", type=[
             "mp4"], disabled=st.session_state.is_processing, on_change=set_processing, args=(True,))
         st.write("OR")
         video_url = st.text_input(
-            "Enter the URL of an MP4 video (Youtube or other)",
+            "Enter the URL of a MP4 video (Youtube or other)",
             disabled=st.session_state.is_processing,
             on_change=set_processing,  # Will pass value below
             args=(True,)
