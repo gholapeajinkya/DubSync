@@ -359,6 +359,7 @@ if __name__ == "__main__":
                             for chunk in response.iter_content(chunk_size=8192):
                                 if chunk:
                                     f.write(chunk)
+                        video_file = open(uploaded_video_path, "rb")
                         st.success("Video downloaded successfully!")
                     else:
                         st.error("Failed to download video. Please check the URL.")
