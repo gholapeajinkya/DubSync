@@ -318,7 +318,7 @@ if __name__ == "__main__":
         st.divider()
         st.write("Transcription Options")
         whisper_models = ["tiny", "base", "small",
-                          "medium", "large", "large-v2", "large-v3"]
+                          "medium", "large", "large-v2", "large-v3", "turbo"]
         selected_model = st.selectbox(
             "Select Whisper model for transcription",
             options=whisper_models,
@@ -431,7 +431,7 @@ if __name__ == "__main__":
             st.data_editor(df, use_container_width=True,
                            hide_index=True, num_rows="dynamic", disabled=True)
             segments_csv_path = os.path.join(
-                sample_output_dir, f"output_segments.csv")
+                sample_output_dir, f"output_segments_{selected_model}_{output_language.lower()}.csv")
             df.to_csv(segments_csv_path, index=False, encoding="utf-8")
         with output_col1:
             voice_cloning(segments, vocals_path)
@@ -449,7 +449,7 @@ if __name__ == "__main__":
 
         video = video.with_audio(combined_audio)
         dubbed_video_path = os.path.join(
-            sample_output_dir, f"dubbed_video_{output_language.lower()}.mp4")
+            sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.mp4")
         video.write_videofile(
             dubbed_video_path, codec="libx264", audio_codec="aac")
         with output_col1:
