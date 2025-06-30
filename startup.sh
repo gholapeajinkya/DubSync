@@ -1,7 +1,8 @@
 #!/bin/bash
+export XDG_CACHE_HOME="/tmp/.cache"
+export XDG_CONFIG_HOME="/tmp/.config"
 
-# Optional: move to your app folder
-cd /home/site/wwwroot
+pip install -r requirements.txt
 
-# Run your Streamlit app
-streamlit run app.py --server.port 8000 --server.enableCORS false
+# If your main file is app.py at the root
+streamlit run app.py --server.port=8000 --server.enableCORS=false
