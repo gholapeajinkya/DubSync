@@ -1,15 +1,15 @@
 altair
 pandas
 streamlit
-moviepy==2.1.2
-openai==1.86.0
-pyannote.audio==3.3.2
-pydub==0.25.1
-torch==2.7.0
-yt_dlp==2025.6.9
-moviepy==2.1.2
-cmake==3.31.6
-sentencepiece==0.2.0
+moviepy
+openai
+pyannote.audio
+pydub
+torch
+yt_dlp
+moviepy
+cmake
+sentencepiece
 openai-whisper @ git+https://github.com/openai/whisper.git@517a43ecd132a2089d85f4ebc044728a71d49f6e
 yt-dlp
 ffmpeg-python
