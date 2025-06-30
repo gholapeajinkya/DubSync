@@ -46,9 +46,11 @@ client = AzureOpenAI(
     azure_endpoint=api_base,
 )
 
+
 def clean_up():
     shutil.rmtree(temp_folder)
     st.session_state.is_processing = False
+
 
 def extract_audio_from_video(video_path):
     with st.spinner("🎬 Extracting audio from the video..."):
@@ -65,16 +67,23 @@ def extract_audio_from_video(video_path):
 
 
 def separate_audio_layers(audio_path):
-    with st.spinner("🎶 Separating audio layers..."):
-        output_dir = os.path.join(temp_folder, "demucs_output")
-        subprocess.run(["demucs", "-o", output_dir,
-                       f"--device={device}", audio_path])
-        return output_dir
+    try:
+        with st.spinner("🎶 Separating audio layers..."):
+            output_dir = os.path.join(temp_folder, "demucs_output")
+            subprocess.run(["demucs", "-o", output_dir,
+                            f"--device={device}", audio_path])
+            return output_dir
+    except Exception as e:
+        st.error(f"Audio separation failed: {e}")
+        clean_up()
+        sys.exit(1)
+
 
 def is_model_cached(model_name):
     cache_dir = os.path.expanduser("~/.cache/whisper")
     model_files = [f"{model_name}.pt"]
     return all(os.path.exists(os.path.join(cache_dir, f)) for f in model_files)
+
 
 def transcribe_audio(audio_path):
     # TODO: Add support for multiple languages
@@ -88,6 +97,7 @@ def transcribe_audio(audio_path):
         result = model.transcribe(
             audio_path, language=input_language_value, word_timestamps=False, fp16=False, condition_on_previous_text=True)
         return result["segments"]
+
 
 def generate_audio_from_segments(segments, original_audio_path):
     with st.spinner("🌍 Generating audio from segments..."):
@@ -137,6 +147,7 @@ def clean_response_text(text):
     if text.startswith(unwanted_prefix):
         text = text[len(unwanted_prefix):].strip()
     return text
+
 
 def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
     with st.spinner(f"Translating segments using AI..."):
@@ -218,6 +229,7 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, outp
     except subprocess.CalledProcessError as e:
         print("Error:", e.stderr)
         return None
+
 
 def voice_cloning(segments, audio_path, max_threads=4):
     audio = AudioSegment.from_file(audio_path)
@@ -365,7 +377,8 @@ if __name__ == "__main__":
                         video_file = open(uploaded_video_path, "rb")
                         st.success("Video downloaded successfully!")
                     else:
-                        st.error("Failed to download video. Please check the URL.")
+                        st.error(
+                            "Failed to download video. Please check the URL.")
             except Exception as e:
                 st.error(f"An error occurred: {e}")
 
