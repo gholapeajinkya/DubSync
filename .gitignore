@@ -179,8 +179,9 @@ venv310/**
 venv/**
 
 
-sample_input/**
-sample_output/**
+sample_inputs/**
+sample_outputs/**
 
 
 tmp_spkrec/** 
+.DS_Store
