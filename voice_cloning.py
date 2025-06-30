@@ -1,29 +1,41 @@
-import torch
-import soundfile as sf
-from resemblyzer import VoiceEncoder, preprocess_wav
-from TTS.utils.synthesizer import Synthesizer
+import subprocess
 
-# Load your sample voice file (wav)
-voice_sample_path = "speaker_sample.wav"
-text_to_speak = "Hello, this is a test of voice cloning."
+def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, config_path=None, output_dir=None, output_file=None):
+    command = [
+        "f5-tts_infer-cli",
+        "--model", model,
+        "--ref_audio", ref_audio,
+        "--ref_text", ref_text,
+        "--gen_text", gen_text,
+        "--speed", "0.7"
+    ]
+    if config_path:
+        command += ["--config", config_path]
+    if output_dir:
+        command += ["--output_dir", output_dir]
+    if output_file:
+        command += ["--output_file", output_file]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        print("Command output:", result.stdout)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print("Error:", e.stderr)
+        return None
 
-# Step 1: Extract speaker embedding using resemblyzer
-encoder = VoiceEncoder()
+if __name__ == "__main__":
+    ref_audio = "sample_inputs/cropped_audio.wav"
+    ref_text = "僭越ながら今回のレイドでリーダーを務めさせていただきますソン・チオルですよろしくお願いします"
+    gen_text = "I am proud to be the leader of this raid. It's Song Chi-Ol thank you"
+    config_path = "/path/to/f5-tts.yaml"  # Update this path if needed
+    output_dir = "resources/cloned_audio"          # Optional: specify output directory
 
-wav = preprocess_wav(voice_sample_path)
-embedding = encoder.embed_utterance(wav)
-
-# Step 2: Load YourTTS synthesizer
-synthesizer = Synthesizer(
-    tts_checkpoint="yourtts.pt",
-    tts_config_path="config.json",    # Use YourTTS config from repo
-    speaker_embeddings=True,
-)
-
-# Step 3: Generate speech with cloned voice
-wav_gen = synthesizer.tts(text_to_speak, speaker_embedding=embedding)
-
-# Step 4: Save output
-sf.write("cloned_voice_output.wav", wav_gen, samplerate=22050)
-
-print("Generated speech saved as cloned_voice_output.wav")
+    run_f5_tts_infer(
+        model="F5TTS_v1_Base",
+        ref_audio=ref_audio,
+        ref_text=ref_text,
+        gen_text=gen_text,
+        # config_path=config_path,
+        output_dir=output_dir,
+        output_file="output.wav"  # Optional: specify output file name
+    )

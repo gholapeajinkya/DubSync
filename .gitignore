@@ -184,4 +184,10 @@ sample_outputs/**
 
 
 tmp_spkrec/** 
+sample_outputs/**
+
+tests/**
+
+sample_inputs/**
+
 .DS_Store

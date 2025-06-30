@@ -1,12 +1,11 @@
 import streamlit as st
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from moviepy import VideoFileClip, AudioFileClip, CompositeAudioClip
 import whisper
 from pydub import AudioSegment
-import urllib.parse
 import requests
-from gtts import gTTS
 import shutil
 import yt_dlp
 from openai import AzureOpenAI
@@ -15,11 +14,20 @@ import ast
 import time
 import sys
 import torch
+import pandas as pd
 
-st.set_page_config(page_title="DubSync",layout="wide")
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
+st.set_page_config(page_title=f"DubSync ({device})", layout="wide")
+
+sample_output_dir = "sample_outputs"
 temp_folder = "resources"
+cropped_audio_dir = os.path.join(temp_folder, "cropped_audio")
+cloned_audio_dir = os.path.join(temp_folder, "cloned_audio")
 os.makedirs(temp_folder, exist_ok=True)
+os.makedirs(cropped_audio_dir, exist_ok=True)
+os.makedirs(cloned_audio_dir, exist_ok=True)
+os.makedirs(sample_output_dir, exist_ok=True)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -38,89 +46,6 @@ client = AzureOpenAI(
     azure_endpoint=api_base,
 )
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-if "is_processing" not in st.session_state:
-    st.session_state.is_processing = False
-
-with st.sidebar:
-    # File uploader for MP4 video
-    video_file = st.file_uploader("Upload an MP4 video file", type=["mp4"], disabled=st.session_state.is_processing)
-    st.write("OR")
-    video_url = st.text_input(
-        "Enter the URL of an MP4 video (Youtube or other)", disabled=st.session_state.is_processing)
-    st.divider()
-
-    st.write("Input Language")
-    languages = [("Japanese", "ja"), ("English", "en"),
-                 ("Chinese", "zh"), ("Korean", "ko"),
-                 ("Hindi", "hi"), ("Marathi", "mr"), ("Spanish", "es"),
-                 ("French", "fr"), ("German", "de")]
-
-    input_language = st.selectbox(
-        "Select the language of the original video",
-        options=[label for label, value in languages],
-        index=0,
-        disabled=st.session_state.is_processing,
-    )
-    input_language_value = dict(languages)[input_language]
-    st.write("Output Language")
-    output_language = st.selectbox(
-        "Select the language of the dubbed video",
-        options=[label for label, value in languages],
-        index=1,
-        disabled=st.session_state.is_processing,
-    )
-    output_language_value = dict(languages)[output_language]
-    st.divider()
-    st.write("Transcription Options")
-    whisper_models = ["tiny", "base", "small", "medium", "large"]
-    selected_model = st.selectbox(
-        "Select Whisper model for transcription",
-        options=whisper_models,
-        index=4,  # Default to 'large'
-        disabled=st.session_state.is_processing,
-    )
-    use_ai_transcription = st.toggle("Use AI for transcription", value=False, disabled=st.session_state.is_processing)
-
-if video_url:
-    if "youtube.com" in video_url or "youtu.be" in video_url:
-        with st.spinner("Downloading video from URL..."):
-            try:
-                # Use yt-dlp for YouTube links
-                ydl_opts = {
-                    'format': 'bestvideo+bestaudio/best',
-                    # Output to stdout
-                    'outtmpl': os.path.join(temp_folder, "uploaded_video.mp4"),
-                    'merge_output_format': 'mp4',  # Merge video and audio into mp4
-                    'quiet': False,  # Suppress output
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(video_url, download=True)
-                    video_file = ydl.prepare_filename(info).replace(".webm", ".mp4").replace(
-                        # os.path.join(temp_folder, "uploaded_video.mp4")
-                        ".mkv", ".mp4")
-                st.success("YouTube video downloaded successfully! " +
-                           ydl.extract_info(video_url, download=False)['title'])
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
-
-    else:
-        try:
-            with st.spinner("Downloading video from URL..."):
-                response = requests.get(video_url, stream=True)
-                if response.status_code == 200:
-                    video_file = response.raw
-                    uploaded_video_path = os.path.join(
-                        temp_folder, "uploaded_video.mp4")
-                    with open(uploaded_video_path, "wb") as f:
-                        shutil.copyfileobj(response.raw, f)
-                    st.success("Video downloaded successfully!")
-                else:
-                    st.error("Failed to download video. Please check the URL.")
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
-
 def clean_up():
     shutil.rmtree(temp_folder)
     st.session_state.is_processing = False
@@ -138,45 +63,34 @@ def extract_audio_from_video(video_path):
             sys.exit(1)
             return None
 
+
 def separate_audio_layers(audio_path):
     with st.spinner("🎶 Separating audio layers..."):
         output_dir = os.path.join(temp_folder, "demucs_output")
-        subprocess.run(["demucs", "-o", output_dir, f"--device={device}", audio_path])
+        subprocess.run(["demucs", "-o", output_dir,
+                       f"--device={device}", audio_path])
         return output_dir
 
+def is_model_cached(model_name):
+    cache_dir = os.path.expanduser("~/.cache/whisper")
+    model_files = [f"{model_name}.pt"]
+    return all(os.path.exists(os.path.join(cache_dir, f)) for f in model_files)
+
 def transcribe_audio(audio_path):
-    with st.spinner("🧠 Transcribing vocals..."):
+    # TODO: Add support for multiple languages
+    # TODO: Try faster_whisper for faster transcription
+    if not is_model_cached(selected_model):
+        message = f"Model {selected_model} not found in cache. It will be downloaded."
+    else:
+        message = f"Model {selected_model} is already cached. Transcribing vocals..."
+    with st.spinner(message):
         model = whisper.load_model(selected_model, device=device)
         result = model.transcribe(
-            audio_path, language=input_language_value, word_timestamps=True, fp16=False, condition_on_previous_text=True)
+            audio_path, language=input_language_value, word_timestamps=False, fp16=False, condition_on_previous_text=True)
         return result["segments"]
 
-def google_text_to_speech(text, source_lang="ja", target_lang="en"):
-    base_url = "https://translate.googleapis.com/translate_a/single"
-    params = {
-        "client": "gtx",
-        "sl": source_lang,
-        "tl": target_lang,
-        "dt": "t",
-        "q": text,
-    }
-    print(f"Google Translate URL: {base_url}?{urllib.parse.urlencode(params)}")
-    url = f"{base_url}?{urllib.parse.urlencode(params)}"
-    response = requests.get(url)
-
-    if response.status_code == 200:
-        try:
-            result = response.json()
-            return "".join([part[0] for part in result[0]])
-        except Exception as e:
-            print(f"Error parsing translation response: {e}")
-            clean_up()
-    else:
-        print("Translation failed with status", response.status_code)
-    return ""
-
-def google_translate_segments(segments, source_lang="ja", target_lang="en"):
-    with st.spinner("🌍 Translating ..."):
+def generate_audio_from_segments(segments, original_audio_path):
+    with st.spinner("🌍 Generating audio from segments..."):
         translated_audio = os.path.join(temp_folder, "translated_audio.wav")
         final_audio = AudioSegment.silent(duration=0)
         last_end_time = 0
@@ -184,28 +98,20 @@ def google_translate_segments(segments, source_lang="ja", target_lang="en"):
             start_ms = segment["start"]*1000
             end_ms = segment["end"]*1000
             duration_ms = (end_ms - start_ms)
-            original_text = segment["text"]
-            # Translate
-            try:
-                if original_text:
-                    translation = google_text_to_speech(
-                        original_text, source_lang, target_lang)
-                    if translation:
-                        segment["translation"] = translation
-            except Exception as e:
-                print(f"Translation failed for segment {idx}: {e}")
-                translation = "..."
 
-            # TTS
-            tts = gTTS(text=translation, lang='en')
-            segment_path = os.path.join(temp_folder, f"segment_{idx}.mp3")
-            tts.save(segment_path)
-            spoken = AudioSegment.from_file(segment_path)
+            audio_segment_path = os.path.join(
+                cloned_audio_dir, f"output_{idx}.wav")
+            spoken = AudioSegment.from_file(audio_segment_path)
 
             # Add silence before this segment if needed
             gap_duration = start_ms - int(last_end_time * 1000)
             if gap_duration > 0:
-                final_audio += AudioSegment.silent(duration=gap_duration)
+                original_audio = AudioSegment.from_file(original_audio_path)
+                gap_start = int(last_end_time * 1000)
+                gap_end = int(start_ms)
+                gap_audio = original_audio[gap_start:gap_end]
+                final_audio += gap_audio
+                # final_audio += AudioSegment.silent(duration=gap_duration)
 
             # Clip or pad the TTS output to exactly fit segment duration
             if len(spoken) > duration_ms:
@@ -217,17 +123,15 @@ def google_translate_segments(segments, source_lang="ja", target_lang="en"):
             # Add processed speech
             final_audio += spoken
             last_end_time = segment["end"]
-            print(
-                f"✅ Segment {idx+1}/{len(segments)} | ${segment["start"]} {translation}")
+            print(f"Segment {idx+1}/{len(segments)} | {segment['start']}")
         # 5. Save final audio
         final_audio.export(translated_audio, format="wav")
         return translated_audio
 
+
 def clean_response_text(text):
     text = text.strip()
     if text.startswith("```json") and text.endswith("```"):
-        # Remove the wrapping triple backticks
-        st.warning("Removing wrapping triple backticks")
         text = "\n".join(text.strip("`").split("\n")[1:])
     unwanted_prefix = f"Here's the rewritten script for the dubbing:"
     if text.startswith(unwanted_prefix):
@@ -277,138 +181,289 @@ def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
         )
         response_segment = clean_response_text(
             response.choices[0].message.content.strip())
-        print("==============================================================================================")
         response_segment = clean_response_text(response_segment)
         print(f"translate_with_gpt response => \n{response_segment}")
         ai_segments = ast.literal_eval(str(response_segment))
-        translated_audio = os.path.join(temp_folder, "translated_audio.wav")
-        final_audio = AudioSegment.silent(duration=0)
-        last_end_time = 0
-        for idx, (segment, ai_segment) in enumerate(zip(segments, ai_segments)):
-            start_ms = segment["start"]*1000
-            end_ms = segment["end"]*1000
-            duration_ms = (end_ms - start_ms)
-            original_text = ai_segment["text"]
-            # Translate
+        # Map ai_segments by id for quick lookup
+        ai_segments_dict = {s["id"]: s for s in ai_segments}
+        # Add translated text into segments
+        for segment in segments:
+            ai_seg = ai_segments_dict.get(segment["id"])
+            if ai_seg and "translation" in ai_seg:
+                segment["translation"] = ai_seg["translation"]
+            elif ai_seg and "text" in ai_seg:  # fallback if key is 'text'
+                segment["translation"] = ai_seg["text"]
+        return segments
+
+
+def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, output_file=None):
+    # TODO: Add multilingual support
+    command = [
+        "f5-tts_infer-cli",
+        "--model", model,
+        "--ref_audio", ref_audio,
+        "--ref_text", ref_text,
+        "--gen_text", gen_text,
+        "--speed", "0.7"
+    ]
+    if output_file:
+        command += ["--output_file", output_file]
+    if output_dir:
+        command += ["--output_dir", output_dir]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, check=True)
+        print("Command output:", result.stdout)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print("Error:", e.stderr)
+        return None
+
+def voice_cloning(segments, audio_path, max_threads=4):
+    audio = AudioSegment.from_file(audio_path)
+    crop_audio_futures = []
+    with st.spinner("🔊 Cropping audio segments..."):
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            for segment in segments:
+                start_ms = int(segment["start"] * 1000)
+                end_ms = int(segment["end"] * 1000)
+                cropped = audio[start_ms:end_ms]
+                output_file = os.path.join(
+                    cropped_audio_dir, f"cropped_{segment['id']}.wav")
+                crop_audio_futures.append(executor.submit(
+                    cropped.export, output_file, format="wav"))
+        # Wait for all cropping tasks to complete
+        for future in as_completed(crop_audio_futures):
             try:
-                translation = google_text_to_speech(
-                    original_text, source_lang, target_lang)
-                if translation:
-                    segment["translation"] = translation
+                future.result()  # This will raise an exception if the export failed
             except Exception as e:
-                print(f"Translation failed for segment {idx}: {e}")
-                translation = "..."
+                st.error(f"Error cropping audio: {e}")
+                clean_up()
+                sys.exit(1)
+                return None
+    with st.spinner("🤖 Cloning voice..."):
+        for segment in segments:
+            start_ms = int(segment["start"] * 1000)
+            end_ms = int(segment["end"] * 1000)
+            cropped = audio[start_ms:end_ms]
+            cropped.export(os.path.join(cropped_audio_dir,
+                           f"cropped_{segment['id']}.wav"), format="wav")
+        try:
+            with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                futures = []
+                for segment in segments:
+                    ref_audio = os.path.join(
+                        cropped_audio_dir, f"cropped_{segment['id']}.wav")
+                    ref_text = segment["text"]
+                    gen_text = segment["translation"]
+                    # Check if ref_text and gen_text are not empty
+                    if not ref_text or not gen_text:
+                        print(
+                            f"Skipping segment {segment} due to empty ref_text or gen_text")
+                        continue
+                    if gen_text:
+                        future = executor.submit(run_f5_tts_infer, "F5TTS_v1_Base",
+                                                 ref_audio, ref_text, gen_text,
+                                                 output_dir=cloned_audio_dir,
+                                                 output_file=f"output_{segment['id']}.wav")
+                        futures.append(future)
+                for future in as_completed(futures):
+                    output = future.result()
+                    print(f"F5 TTS Infer output: {output}")
 
-            # TTS
-            tts = gTTS(text=translation, lang='en')
-            segment_path = os.path.join(temp_folder, f"segment_{idx}.mp3")
-            tts.save(segment_path)
-            spoken = AudioSegment.from_file(segment_path)
+        except Exception as e:
+            st.error(f"Voice cloning failed: {e}")
+            clean_up()
+            sys.exit(1)
+            return None
 
-            # Add silence before this segment if needed
-            gap_duration = start_ms - int(last_end_time * 1000)
-            if gap_duration > 0:
-                final_audio += AudioSegment.silent(duration=gap_duration)
 
-            # Clip or pad the TTS output to exactly fit segment duration
-            if len(spoken) > duration_ms:
-                spoken = spoken[:duration_ms]
-            else:
-                spoken += AudioSegment.silent(
-                    duration=duration_ms - len(spoken))
+def set_processing(value=True):
+    st.session_state.is_processing = value
 
-            # Add processed speech
-            final_audio += spoken
-            last_end_time = segment["end"]
-            print(
-                f"✅ Segment {idx+1}/{len(segments)} | {segment["start"]} {translation}")
-        # 5. Save final audio
-        final_audio.export(translated_audio, format="wav")
-        return translated_audio
 
-# Display the uploaded video
-if video_file is not None:
-    st.session_state.is_processing = True
-    start_time = time.time()
-    input_col1, input_col2 = st.columns(2)
-    st.divider()
-    output_col1, output_col2 = st.columns(2)
-    with input_col1:
-        st.video(video_file, muted=False)
-    uploaded_video_path = os.path.join(temp_folder, "uploaded_video.mp4")
-    if not os.path.exists(uploaded_video_path):
-        with open(uploaded_video_path, "wb") as f:
-            f.write(video_file.read())
+if __name__ == "__main__":
+    if "is_processing" not in st.session_state:
+        st.session_state.is_processing = False
 
-    # Extract audio from the video
-    audio_path = extract_audio_from_video(uploaded_video_path)
+    with st.sidebar:
+        # File uploader for MP4 video
+        st.write("Video Input Options")
+        video_file = st.file_uploader("Upload a MP4 video file", type=[
+            "mp4"], disabled=st.session_state.is_processing, on_change=set_processing, args=(True,))
+        st.write("OR")
+        video_url = st.text_input(
+            "Enter the URL of a MP4 video (Youtube or other)",
+            disabled=st.session_state.is_processing,
+            on_change=set_processing,  # Will pass value below
+            args=(True,)
+        )
+        st.divider()
 
-    # Run Demucs to separate background audio
-    with input_col2:
-        output_dir = separate_audio_layers(audio_path)
+        st.write("Language Options")
+        languages = [("Japanese", "ja"), ("English", "en"), ("Chinese", "zh")]
 
-    # Display the separated audio files
-    separated_dir = os.path.join(
-        output_dir, "htdemucs", os.path.splitext(os.path.basename(audio_path))[0])
-    vocals_path = os.path.join(separated_dir, "vocals.wav")
-    bg_music_path = os.path.join(separated_dir, "other.wav")
-    bass_path = os.path.join(separated_dir, "bass.wav")
-    drums_path = os.path.join(separated_dir, "drums.wav")
-    with input_col2:
-        if os.path.exists(vocals_path) and os.path.exists(bg_music_path) and os.path.exists(bass_path) and os.path.exists(drums_path):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("🎤 Vocals: ")
-                st.audio(vocals_path)
-                st.write("🎵 Background Music: ")
-                st.audio(bg_music_path)
-            with col2:
-                st.write("🥁 Drums: ")
-                st.audio(drums_path)
-                st.write("🎸 Bass: ")
-                st.audio(bass_path)
+        input_language = st.selectbox(
+            "Select the language of the original video",
+            options=[label for label, value in languages],
+            index=0,
+            disabled=st.session_state.is_processing,
+        )
+        input_language_value = dict(languages)[input_language]
+        st.write("Output Language")
+        output_language = st.selectbox(
+            "Select the language of the dubbed video",
+            options=[label for label, value in languages],
+            index=1,
+            disabled=st.session_state.is_processing,
+        )
+        output_language_value = dict(languages)[output_language]
+        st.divider()
+        st.write("Transcription Options")
+        whisper_models = ["tiny", "base", "small",
+                          "medium", "large", "large-v2", "large-v3", "turbo"]
+        selected_model = st.selectbox(
+            "Select Whisper model for transcription",
+            options=whisper_models,
+            index=4,  # Default to 'large'
+            disabled=st.session_state.is_processing,
+        )
+
+    if video_url:
+        if "youtube.com" in video_url or "youtu.be" in video_url:
+            with st.spinner("Downloading video from URL..."):
+                try:
+                    # Use yt-dlp for YouTube links
+                    ydl_opts = {
+                        'format': 'bestvideo+bestaudio/best',
+                        # Output to stdout
+                        'outtmpl': os.path.join(temp_folder, "uploaded_video.mp4"),
+                        'merge_output_format': 'mp4',  # Merge video and audio into mp4
+                        'quiet': False,  # Suppress output
+                    }
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(video_url, download=True)
+                        video_file = ydl.prepare_filename(info).replace(".webm", ".mp4").replace(
+                            # os.path.join(temp_folder, "uploaded_video.mp4")
+                            ".mkv", ".mp4")
+                    st.success("YouTube video downloaded successfully! " +
+                               ydl.extract_info(video_url, download=False)['title'])
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+
         else:
-            st.error("Audio separation failed. Please check the logs.")
+            try:
+                with st.spinner("Downloading video from URL..."):
+                    response = requests.get(video_url, stream=True)
+                    if response.status_code == 200:
+                        uploaded_video_path = os.path.join(
+                            temp_folder, "uploaded_video.mp4")
+                        with open(uploaded_video_path, "wb") as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                        video_file = open(uploaded_video_path, "rb")
+                        st.success("Video downloaded successfully!")
+                    else:
+                        st.error("Failed to download video. Please check the URL.")
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
 
-    # # TODO: Create small segments of the audio files to recognize unique voices and translate them as per gender
+    if video_file is not None:
+        st.session_state.is_processing = True
+        start_time = time.time()
+        input_col1, input_col2 = st.columns(2)
+        st.divider()
+        output_col1, output_col2 = st.columns(2)
+        with input_col1:
+            st.video(video_file, muted=False)
+        uploaded_video_path = os.path.join(temp_folder, "uploaded_video.mp4")
+        if not os.path.exists(uploaded_video_path):
+            with open(uploaded_video_path, "wb") as f:
+                f.write(video_file.read())
 
-    segments = transcribe_audio(vocals_path)
+        # Extract audio from the video
+        audio_path = extract_audio_from_video(uploaded_video_path)
 
-    if (use_ai_transcription):
+        # Run Demucs to separate background audio
+        with input_col2:
+            output_dir = separate_audio_layers(audio_path)
+
+        # Display the separated audio files
+        separated_dir = os.path.join(
+            output_dir, "htdemucs", os.path.splitext(os.path.basename(audio_path))[0])
+        vocals_path = os.path.join(separated_dir, "vocals.wav")
+        bg_music_path = os.path.join(separated_dir, "other.wav")
+        bass_path = os.path.join(separated_dir, "bass.wav")
+        drums_path = os.path.join(separated_dir, "drums.wav")
+        with input_col2:
+            if os.path.exists(vocals_path) and os.path.exists(bg_music_path) and os.path.exists(bass_path) and os.path.exists(drums_path):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("🎤 Vocals: ")
+                    st.audio(vocals_path)
+                    st.write("🎵 Background Music: ")
+                    st.audio(bg_music_path)
+                with col2:
+                    st.write("🥁 Drums: ")
+                    st.audio(drums_path)
+                    st.write("🎸 Bass: ")
+                    st.audio(bass_path)
+            else:
+                st.error("Audio separation failed. Please check the logs.")
+
+        # # TODO: Create small segments of the audio files to recognize unique voices and translate them as per gender
+
+        segments = transcribe_audio(vocals_path)
         # Translate the segments using AI
-        translated_audio = translate_with_gpt(
+        segments = translate_with_gpt(
             segments, source_lang=input_language_value, target_lang=output_language_value)
-    else:
-        # Translate the segments using Google Translate
-        translated_audio = google_translate_segments(
-            segments, source_lang=input_language_value, target_lang=output_language_value)
-    with output_col2:
-        st.write("🎤 Translated audio: ")
-        st.audio(translated_audio)
+        with output_col2:
+            filtered_segments = [
+                {
+                    "id": s.get("id"),
+                    "start (sec)": s.get("start"),
+                    "end (sec)": s.get("end"),
+                    "duration (sec)": (s.get("end") - s.get("start")),
+                    "speech_prob": f"{round(round(s.get('no_speech_prob', 0), 2) * 100, 2)}%",
+                    "translation": s.get("translation"),
+                    "text": s.get("text"),
+                }
+                for s in segments
+            ]
+            df = pd.DataFrame(filtered_segments)
+            st.data_editor(df, use_container_width=True,
+                           hide_index=True, num_rows="dynamic", disabled=True)
+            segments_csv_path = os.path.join(
+                sample_output_dir, f"output_segments_{selected_model}_{output_language.lower()}.csv")
+            df.to_csv(segments_csv_path, index=False, encoding="utf-8")
+        with output_col1:
+            voice_cloning(segments, vocals_path)
 
-    video = VideoFileClip(uploaded_video_path)
+        translated_audio = generate_audio_from_segments(segments, audio_path)
+        video = VideoFileClip(uploaded_video_path)
 
-    translated_audio = AudioFileClip(translated_audio)
-    bg_audio = AudioFileClip(bg_music_path)
-    drums_audio = AudioFileClip(drums_path)
-    bass_audio = AudioFileClip(bass_path)
-    # Combine audio tracks
-    combined_audio = CompositeAudioClip(
-        [translated_audio, bg_audio, drums_audio, bass_audio])
+        translated_audio = AudioFileClip(translated_audio)
+        bg_audio = AudioFileClip(bg_music_path)
+        drums_audio = AudioFileClip(drums_path)
+        bass_audio = AudioFileClip(bass_path)
+        # Combine audio tracks
+        combined_audio = CompositeAudioClip(
+            [translated_audio, bg_audio, drums_audio, bass_audio])
 
-    video = video.with_audio(combined_audio)
-    dubbed_video_path = os.path.join(
-        temp_folder, f"dubbed_video_{output_language}_{use_ai_transcription}.mp4")
-    video.write_videofile(dubbed_video_path, codec="libx264", audio_codec="aac")
-    with output_col1:
-        with st.spinner("🎬 Generating dubbed video..."):
-            st.video(dubbed_video_path)
-    end_time = time.time()
-    # Calculate the elapsed time
-    elapsed_time = end_time - start_time
-    # Display the elapsed time
-    st.success(f"Processing completed in {elapsed_time/60:.2f} mins.")
-    # Clean up temporary files
-    clean_up()
-    
-
+        video = video.with_audio(combined_audio)
+        dubbed_video_path = os.path.join(
+            sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.mp4")
+        video.write_videofile(
+            dubbed_video_path, codec="libx264", audio_codec="aac")
+        with output_col1:
+            with st.spinner("🎬 Generating dubbed video..."):
+                st.video(dubbed_video_path)
+        end_time = time.time()
+        # # Calculate the elapsed time
+        elapsed_time = end_time - start_time
+        elapsed_minutes = round(elapsed_time / 60, 2)
+        # Display the elapsed time
+        st.success(f"Processing completed in {elapsed_minutes} mins.")
+        # Clean up temporary files
+        clean_up()
