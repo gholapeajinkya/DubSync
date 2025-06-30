@@ -191,3 +191,5 @@ tests/**
 sample_inputs/**
 
 .DS_Store
+
+.vscode/
