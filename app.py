@@ -20,6 +20,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 st.set_page_config(page_title=f"DubSync ({device})", layout="wide")
 
+demo_dir = "demos"
 sample_output_dir = "sample_outputs"
 temp_folder = "resources"
 cropped_audio_dir = os.path.join(temp_folder, "cropped_audio")
@@ -36,8 +37,9 @@ load_dotenv()
 api_type = "azure"
 api_key = os.getenv("OPENAI_API_KEY")
 api_base = os.getenv("OPENAI_API_BASE")
-api_version = "2025-01-01-preview"  # or latest supported version
-DEPLOYMENT_NAME = "gpt-4-dubbing"  # Your Azure OpenAI deployment name
+api_version = os.getenv("OPENAI_API_VERSION")  # or latest supported version
+# Your Azure OpenAI deployment name
+DEPLOYMENT_NAME = os.getenv("OPENAI_DEPLOYMENT_NAME")
 
 # Create a client using Azure credentials
 client = AzureOpenAI(
@@ -79,24 +81,19 @@ def separate_audio_layers(audio_path):
         sys.exit(1)
 
 
-def is_model_cached(model_name):
-    cache_dir = os.path.expanduser("~/.cache/whisper")
-    model_files = [f"{model_name}.pt"]
-    return all(os.path.exists(os.path.join(cache_dir, f)) for f in model_files)
-
-
 def transcribe_audio(audio_path):
     # TODO: Add support for multiple languages
     # TODO: Try faster_whisper for faster transcription
-    if not is_model_cached(selected_model):
-        message = f"Model {selected_model} not found in cache. It will be downloaded."
-    else:
-        message = f"Model {selected_model} is already cached. Transcribing vocals..."
-    with st.spinner(message):
+    fp16 = device == "cuda"
+    with st.spinner("🎤 Transcribing vocals..."):
         model = whisper.load_model(selected_model, device=device)
         result = model.transcribe(
-            audio_path, language=input_language_value, word_timestamps=False, fp16=False, condition_on_previous_text=True)
-        return result["segments"]
+            audio_path, language=input_language_value, word_timestamps=False, fp16=fp16, condition_on_previous_text=True)
+
+        # Store raw segments in CSV
+        segments = result["segments"]
+        print(f"Transcription segments: {segments}")
+        return segments
 
 
 def generate_audio_from_segments(segments, original_audio_path):
@@ -104,7 +101,8 @@ def generate_audio_from_segments(segments, original_audio_path):
         translated_audio = os.path.join(temp_folder, "translated_audio.wav")
         final_audio = AudioSegment.silent(duration=0)
         last_end_time = 0
-        for idx, segment in enumerate(segments):
+        for segment in segments:
+            idx = segment["id"]
             start_ms = segment["start"]*1000
             end_ms = segment["end"]*1000
             duration_ms = (end_ms - start_ms)
@@ -149,7 +147,7 @@ def clean_response_text(text):
     return text
 
 
-def translate_with_gpt(segments, source_lang="ja", target_lang="en"):
+def translate_with_gpt(segments):
     with st.spinner(f"Translating segments using AI..."):
         # Rewrite the translation using GPT
         input_segments = []
@@ -215,7 +213,7 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, outp
         "--ref_audio", ref_audio,
         "--ref_text", ref_text,
         "--gen_text", gen_text,
-        "--speed", "0.7"
+        "--speed", "0.8"
     ]
     if output_file:
         command += ["--output_file", output_file]
@@ -434,18 +432,17 @@ if __name__ == "__main__":
 
         segments = transcribe_audio(vocals_path)
         # Translate the segments using AI
-        segments = translate_with_gpt(
-            segments, source_lang=input_language_value, target_lang=output_language_value)
+        segments = translate_with_gpt(segments)
         with output_col2:
             filtered_segments = [
                 {
                     "id": s.get("id"),
                     "start (sec)": s.get("start"),
                     "end (sec)": s.get("end"),
-                    "duration (sec)": (s.get("end") - s.get("start")),
-                    "speech_prob": f"{round(round(s.get('no_speech_prob', 0), 2) * 100, 2)}%",
                     "translation": s.get("translation"),
                     "text": s.get("text"),
+                    "no_speech_prob": s.get('no_speech_prob', 0),
+                    "avg_logprob": s.get("avg_logprob", 0),
                 }
                 for s in segments
             ]
@@ -486,3 +483,44 @@ if __name__ == "__main__":
         video_file = None
         # Clean up temporary files
         clean_up()
+    else:
+        st.title("🎬 DubSync - AI-Powered Video Dubbing")
+        st.markdown("""
+        Welcome to DubSync! Transform your videos with AI-powered dubbing that preserves voice characteristics and emotions.
+        
+        📖 **[Read the Complete Documentation & Setup Guide](https://github.com/gholapeajinkya/DubSync/blob/main/README.md)** - Learn about features, installation, requirements, and how it works.
+        """)
+
+        st.subheader("📺 Demo Videos")
+
+        # Check if sample videos exist and display them
+        demo_videos = [
+            ("sample_input_video.mp4", "Original Japanese video 🇯🇵"),
+            ("dubbed_video_large_english.mp4", "Japanese to English Dub 🇯🇵➡️🇺🇸"),
+            ("dubbed_video_large_chinese.mp4", "Japanese to Chinese Dub 🇯🇵➡️🇨🇳"),
+        ]
+
+        demo_cols = st.columns(len(demo_videos))
+
+        for i, (video_file, title) in enumerate(demo_videos):
+            video_path = os.path.join(demo_dir, video_file)
+            if os.path.exists(video_path):
+                with demo_cols[i]:
+                    st.markdown(f"**{title}**")
+                    st.video(video_path)
+            else:
+                with demo_cols[i]:
+                    st.markdown(f"**{title}**")
+                    st.info("Demo video will appear here after processing")
+
+        st.markdown("---")
+
+        if os.path.exists(os.path.join(sample_output_dir, "output_segments_large_english.csv")):
+            st.subheader("📊 Sample Transcription Results")
+            try:
+                sample_df = pd.read_csv(os.path.join(
+                    sample_output_dir, "output_segments_large_english.csv"))
+                st.dataframe(sample_df.head(10), use_container_width=True)
+            except Exception as e:
+                st.info(
+                    "Sample transcription data will appear here after processing")
