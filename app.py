@@ -488,7 +488,7 @@ if __name__ == "__main__":
         st.markdown("""
         Welcome to DubSync! Transform your videos with AI-powered dubbing that preserves voice characteristics and emotions.
         
-        📖 **[Read the Complete Documentation & Setup Guide](https://github.com/gholapeajinkya/DubSync/blob/main/README.md)** - Learn about features, installation, requirements, and how it works.
+        📖 **[Read the Complete Documentation & Setup Guide](https://github.com/gholapeajinkya/DubSync/blob/main/README.md#dubsync)** - Learn about features, installation, requirements, and how it works.
         """)
 
         st.subheader("📺 Demo Videos")
@@ -511,7 +511,7 @@ if __name__ == "__main__":
             else:
                 with demo_cols[i]:
                     st.markdown(f"**{title}**")
-                    st.info("Demo video will appear here after processing")
+                    st.info("Demo video will appear")
 
         st.markdown("---")
 
@@ -520,7 +520,6 @@ if __name__ == "__main__":
             try:
                 sample_df = pd.read_csv(os.path.join(
                     demo_dir, "output_segments_large_english.csv"))
-                st.dataframe(sample_df.head(10), use_container_width=True)
+                st.dataframe(sample_df.head(10), use_container_width=True, hide_index=True)
             except Exception as e:
-                st.info(
-                    "Sample transcription data will appear here after processing")
+                st.info("Sample transcription data will appear here")
