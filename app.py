@@ -515,11 +515,11 @@ if __name__ == "__main__":
 
         st.markdown("---")
 
-        if os.path.exists(os.path.join(sample_output_dir, "output_segments_large_english.csv")):
+        if os.path.exists(os.path.join(demo_dir, "output_segments_large_english.csv")):
             st.subheader("📊 Sample Transcription Results")
             try:
                 sample_df = pd.read_csv(os.path.join(
-                    sample_output_dir, "output_segments_large_english.csv"))
+                    demo_dir, "output_segments_large_english.csv"))
                 st.dataframe(sample_df.head(10), use_container_width=True)
             except Exception as e:
                 st.info(
