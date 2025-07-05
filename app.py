@@ -71,7 +71,7 @@ def separate_audio_layers(audio_path):
         with st.spinner("🎶 Separating audio layers..."):
             output_dir = os.path.join(temp_folder, "demucs_output")
             subprocess.run(["demucs", "-o", output_dir,
-                            f"--device={device}", audio_path])
+                            f"--device={device}", audio_path], capture_output=True, text=True)
             return output_dir
     except Exception as e:
         st.error(f"Audio separation failed: {e}")
@@ -254,12 +254,6 @@ def voice_cloning(segments, audio_path, max_threads=4):
                 sys.exit(1)
                 return None
     with st.spinner("🤖 Cloning voice..."):
-        for segment in segments:
-            start_ms = int(segment["start"] * 1000)
-            end_ms = int(segment["end"] * 1000)
-            cropped = audio[start_ms:end_ms]
-            cropped.export(os.path.join(cropped_audio_dir,
-                           f"cropped_{segment['id']}.wav"), format="wav")
         try:
             with ThreadPoolExecutor(max_workers=max_threads) as executor:
                 futures = []
@@ -313,23 +307,29 @@ if __name__ == "__main__":
         st.divider()
 
         st.write("Language Options")
-        languages = [("Japanese", "ja"), ("English", "en"), ("Chinese", "zh")]
+        input_languages = [
+            ("Japanese", "ja"), ("English", "en"), ("Chinese", "zh"),
+            ("Korean", "ko"), ("Spanish", "es"), ("French", "fr"),
+            ("German", "de"), ("Italian", "it"), ("Portuguese", "pt"),
+            ("Russian", "ru"), ("Arabic", "ar"), ("Hindi", "hi")
+        ]
+        output_languages = [("English", "en"), ("Chinese", "zh")]
 
         input_language = st.selectbox(
             "Select the language of the original video",
-            options=[label for label, value in languages],
+            options=[label for label, value in input_languages],
             index=0,
             disabled=st.session_state.is_processing,
         )
-        input_language_value = dict(languages)[input_language]
+        input_language_value = dict(input_languages)[input_language]
         st.write("Output Language")
         output_language = st.selectbox(
             "Select the language of the dubbed video",
-            options=[label for label, value in languages],
-            index=1,
+            options=[label for label, value in output_languages],
+            index=0,
             disabled=st.session_state.is_processing,
         )
-        output_language_value = dict(languages)[output_language]
+        output_language_value = dict(output_languages)[output_language]
         st.divider()
         st.write("Transcription Options")
         whisper_models = ["tiny", "base", "small",
@@ -339,7 +339,12 @@ if __name__ == "__main__":
             options=whisper_models,
             index=4,  # Default to 'large'
             disabled=st.session_state.is_processing,
+            help="Larger models provide better accuracy but are slower."
         )
+
+        # Show current device info
+        st.info(f"🖥️ Using device: **{device.upper()}**" +
+                (" (GPU acceleration enabled)" if device == "cuda" else " (CPU only)"))
 
     if video_url:
         if "youtube.com" in video_url or "youtu.be" in video_url:
@@ -478,5 +483,6 @@ if __name__ == "__main__":
         elapsed_minutes = round(elapsed_time / 60, 2)
         # Display the elapsed time
         st.success(f"Processing completed in {elapsed_minutes} mins.")
+        video_file = None
         # Clean up temporary files
         clean_up()

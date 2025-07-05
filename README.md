@@ -29,7 +29,7 @@ DubSync/
 
 ## ⚙️ Tech Stack
 
-| Task                     | Tool / Library        |
+| Task                     | Tool / Library         |
 |--------------------------|------------------------|
 | Transcription            | OpenAI Whisper         |
 | AI Translation Rewrite   | Azure OpenAI (GPT-4)   |
