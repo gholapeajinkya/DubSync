@@ -428,8 +428,6 @@ if __name__ == "__main__":
             else:
                 st.error("Audio separation failed. Please check the logs.")
 
-        # # TODO: Create small segments of the audio files to recognize unique voices and translate them as per gender
-
         segments = transcribe_audio(vocals_path)
         # Translate the segments using AI
         segments = translate_with_gpt(segments)
@@ -462,17 +460,17 @@ if __name__ == "__main__":
         bg_audio = AudioFileClip(bg_music_path)
         drums_audio = AudioFileClip(drums_path)
         bass_audio = AudioFileClip(bass_path)
-        # Combine audio tracks
-        combined_audio = CompositeAudioClip(
-            [translated_audio, bg_audio, drums_audio, bass_audio])
-
-        video = video.with_audio(combined_audio)
-        dubbed_video_path = os.path.join(
-            sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.mp4")
-        video.write_videofile(
-            dubbed_video_path, codec="libx264", audio_codec="aac")
         with output_col1:
             with st.spinner("🎬 Generating dubbed video..."):
+                # Combine audio tracks
+                combined_audio = CompositeAudioClip(
+                    [translated_audio, bg_audio, drums_audio, bass_audio])
+
+                video = video.with_audio(combined_audio)
+                dubbed_video_path = os.path.join(
+                    sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.mp4")
+                video.write_videofile(
+                    dubbed_video_path, codec="libx264", audio_codec="aac")
                 st.video(dubbed_video_path)
         end_time = time.time()
         # # Calculate the elapsed time
