@@ -81,7 +81,7 @@ DubSync/
 
 1. Clone the repository:
     ```sh
-    git clone https://github.com/yourusername/DubSync.git
+    git clone https://github.com/gholapeajinkya/DubSync.git
     cd DubSync
     ```
 
@@ -100,6 +100,8 @@ DubSync/
     ```
     OPENAI_API_KEY=your_azure_openai_key
     OPENAI_API_BASE=your_azure_openai_endpoint
+    OPENAI_API_VERSION=your_azure_aip_version
+    OPENAI_DEPLOYMENT_NAME=your_deployment_name
     ```
 
 5. Ensure `ffmpeg`, `demucs`, and `f5-tts_infer-cli` are installed and available in your PATH.
