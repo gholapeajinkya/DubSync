@@ -81,7 +81,7 @@ DubSync/
 
 1. Clone the repository:
     ```sh
-    [git clone https://github.com/yourusername/DubSync.git](https://github.com/gholapeajinkya/DubSync.git)
+    git clone https://github.com/gholapeajinkya/DubSync.git
     cd DubSync
     ```
 
