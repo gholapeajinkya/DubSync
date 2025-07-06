@@ -388,10 +388,10 @@ if __name__ == "__main__":
     if video_file is not None:
         st.session_state.is_processing = True
         start_time = time.time()
-        input_col1, input_col2 = st.columns(2)
+        input_video_col, output_video_col = st.columns(2)
         st.divider()
-        output_col1, output_col2 = st.columns(2)
-        with input_col1:
+        with input_video_col:
+            st.subheader("Input Video")
             st.video(video_file, muted=False)
         uploaded_video_path = os.path.join(temp_folder, "uploaded_video.mp4")
         if not os.path.exists(uploaded_video_path):
@@ -402,7 +402,7 @@ if __name__ == "__main__":
         audio_path = extract_audio_from_video(uploaded_video_path)
 
         # Run Demucs to separate background audio
-        with input_col2:
+        with output_video_col:
             output_dir = separate_audio_layers(audio_path)
 
         # Display the separated audio files
@@ -412,45 +412,31 @@ if __name__ == "__main__":
         bg_music_path = os.path.join(separated_dir, "other.wav")
         bass_path = os.path.join(separated_dir, "bass.wav")
         drums_path = os.path.join(separated_dir, "drums.wav")
-        with input_col2:
-            if os.path.exists(vocals_path) and os.path.exists(bg_music_path) and os.path.exists(bass_path) and os.path.exists(drums_path):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("🎤 Vocals: ")
-                    st.audio(vocals_path)
-                    st.write("🎵 Background Music: ")
-                    st.audio(bg_music_path)
-                with col2:
-                    st.write("🥁 Drums: ")
-                    st.audio(drums_path)
-                    st.write("🎸 Bass: ")
-                    st.audio(bass_path)
-            else:
-                st.error("Audio separation failed. Please check the logs.")
-
-        segments = transcribe_audio(vocals_path)
-        # Translate the segments using AI
-        segments = translate_with_gpt(segments)
-        with output_col2:
-            filtered_segments = [
-                {
-                    "id": s.get("id"),
-                    "start (sec)": s.get("start"),
-                    "end (sec)": s.get("end"),
-                    "translation": s.get("translation"),
-                    "text": s.get("text"),
-                    "no_speech_prob": s.get('no_speech_prob', 0),
-                    "avg_logprob": s.get("avg_logprob", 0),
-                }
-                for s in segments
-            ]
-            df = pd.DataFrame(filtered_segments)
-            st.data_editor(df, use_container_width=True,
-                           hide_index=True, num_rows="dynamic", disabled=True)
-            segments_csv_path = os.path.join(
-                sample_output_dir, f"output_segments_{selected_model}_{output_language.lower()}.csv")
-            df.to_csv(segments_csv_path, index=False, encoding="utf-8")
-        with output_col1:
+        with output_video_col:
+            segments = transcribe_audio(vocals_path)
+        with output_video_col:
+            # Translate the segments using AI
+            segments = translate_with_gpt(segments)
+        filtered_segments = [
+            {
+                "id": s.get("id"),
+                "start (sec)": s.get("start"),
+                "end (sec)": s.get("end"),
+                "translation": s.get("translation"),
+                "text": s.get("text"),
+                "no_speech_prob": s.get('no_speech_prob', 0),
+                "avg_logprob": s.get("avg_logprob", 0),
+            }
+            for s in segments
+        ]
+        df = pd.DataFrame(filtered_segments)
+        st.subheader("Transcription")
+        st.data_editor(df, use_container_width=True,
+                       hide_index=True, num_rows="dynamic", disabled=True)
+        segments_csv_path = os.path.join(
+            sample_output_dir, f"output_segments_{selected_model}_{output_language.lower()}.csv")
+        df.to_csv(segments_csv_path, index=False, encoding="utf-8")
+        with output_video_col:
             voice_cloning(segments, vocals_path)
 
         translated_audio = generate_audio_from_segments(segments, audio_path)
@@ -460,7 +446,7 @@ if __name__ == "__main__":
         bg_audio = AudioFileClip(bg_music_path)
         drums_audio = AudioFileClip(drums_path)
         bass_audio = AudioFileClip(bass_path)
-        with output_col1:
+        with output_video_col:
             with st.spinner("🎬 Generating dubbed video..."):
                 # Combine audio tracks
                 combined_audio = CompositeAudioClip(
@@ -471,6 +457,7 @@ if __name__ == "__main__":
                     sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.mp4")
                 video.write_videofile(
                     dubbed_video_path, codec="libx264", audio_codec="aac")
+                st.subheader("Dubbed video")
                 st.video(dubbed_video_path)
         end_time = time.time()
         # # Calculate the elapsed time
@@ -518,6 +505,7 @@ if __name__ == "__main__":
             try:
                 sample_df = pd.read_csv(os.path.join(
                     demo_dir, "output_segments_large_english.csv"))
-                st.dataframe(sample_df.head(10), use_container_width=True, hide_index=True)
+                st.dataframe(sample_df.head(
+                    10), use_container_width=True, hide_index=True)
             except Exception as e:
                 st.info("Sample transcription data will appear here")
