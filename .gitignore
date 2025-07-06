@@ -57,6 +57,7 @@ cover/
 
 # Django stuff:
 *.log
+log.txt
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -193,3 +194,6 @@ sample_inputs/**
 .DS_Store
 
 .vscode/
+
+Untitled-1.md
+
