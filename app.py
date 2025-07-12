@@ -306,11 +306,58 @@ def voice_cloning(segments, audio_path, max_threads=4):
             sys.exit(1)
             return None
 
-
 def set_processing(value=True):
     st.session_state.is_processing = value
 
 
+def generate_srt_subtitles(segments, output_path, subtitle_type="translation"):
+    """
+    Generate SRT subtitle file from segments
+    subtitle_type: "translation" for dubbed text, "original" for original text
+    """
+    try:
+        with open(output_path, 'w', encoding='utf-8') as srt_file:
+            for i, segment in enumerate(segments, 1):
+                start_time = segment["start"]
+                end_time = segment["end"]
+
+                # Convert seconds to SRT time format (HH:MM:SS,mmm)
+                start_srt = seconds_to_srt_time(start_time)
+                end_srt = seconds_to_srt_time(end_time)
+
+                # Choose text based on subtitle type
+                if subtitle_type == "translation" and "translation" in segment:
+                    text = segment["translation"]
+                elif "text" in segment:
+                    text = segment["text"]
+                else:
+                    text = "..."  # Fallback for empty segments
+
+                # Clean up text for SRT format
+                text = text.replace('\n', ' ').strip()
+                if not text:
+                    continue  # Skip empty segments
+
+                # Write SRT entry
+                srt_file.write(f"{i}\n")
+                srt_file.write(f"{start_srt} --> {end_srt}\n")
+                srt_file.write(f"{text}\n\n")
+
+        return output_path
+    except Exception as e:
+        st.error(f"Failed to generate subtitles: {e}")
+        return None
+
+
+def seconds_to_srt_time(seconds):
+    """Convert seconds to SRT time format (HH:MM:SS,mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+# Main Streamlit app
 if __name__ == "__main__":
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
@@ -363,6 +410,16 @@ if __name__ == "__main__":
             index=7,  # Default to 'large'
             disabled=st.session_state.is_processing,
             help="Larger models provide better accuracy but are slower."
+        )
+        st.divider()
+
+        st.write("Subtitle Control")
+        st.toggle(
+            "Enable subtitles",
+            value=True,
+            key="enable_subtitles",
+            disabled=st.session_state.is_processing,
+            help="Enable or disable subtitles in the dubbed video."
         )
 
         # Show current device info
@@ -478,8 +535,13 @@ if __name__ == "__main__":
                     [translated_audio, bg_audio, drums_audio, bass_audio])
 
                 video = video.with_audio(combined_audio)
+                dubbed_video_file_name = f"dubbed_video_{selected_model}_{output_language.lower()}.mp4"
+                subtitle_path = os.path.join(
+                    sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.srt")
+                # Embed subtitles in the video
                 dubbed_video_path = os.path.join(
                     sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.mp4")
+                generate_srt_subtitles(segments, subtitle_path)
                 video.write_videofile(
                     dubbed_video_path,
                     codec="libx264",
@@ -489,7 +551,10 @@ if __name__ == "__main__":
                     remove_temp=True
                 )
                 st.subheader("Dubbed video")
-                st.video(dubbed_video_path)
+                if st.session_state.enable_subtitles:
+                    st.video(dubbed_video_path, subtitles=subtitle_path)
+                else:
+                    st.video(dubbed_video_path)
         end_time = time.time()
         # # Calculate the elapsed time
         elapsed_time = end_time - start_time
