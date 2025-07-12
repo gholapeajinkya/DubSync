@@ -88,7 +88,14 @@ def transcribe_audio(audio_path):
     with st.spinner("🎤 Transcribing vocals..."):
         model = whisper.load_model(selected_model, device=device)
         result = model.transcribe(
-            audio_path, language=input_language_value, word_timestamps=False, fp16=fp16, condition_on_previous_text=True)
+            audio_path,
+            language=input_language_value,
+            word_timestamps=False,
+            fp16=fp16,
+            condition_on_previous_text=True,
+            verbose=True,
+            task="transcribe"
+        )
 
         # Store raw segments in CSV
         segments = result["segments"]
@@ -159,8 +166,8 @@ def translate_with_gpt(segments):
                 "end": segment["end"]
             })
         prompt = f"""
-            You are an expert anime dubbing scriptwriter.
-            Your job is to take a list of {input_segments} from a {input_language.lower()} anime and rewrite the {output_language} translations to sound natural, expressive, and emotionally aligned with how the lines would be spoken in an English dub.
+            You are an expert anime, movie, series dubbing scriptwriter.
+            Your job is to take a list of {input_segments} from a {input_language.lower()} video and rewrite the {output_language} translations to sound natural, expressive, and emotionally aligned with how the lines would be spoken in an English dub.
 
             Each segment contains:
             - `start` and `end` timestamps
@@ -172,7 +179,7 @@ def translate_with_gpt(segments):
             - Make small natural rewrites to the {output_language.lower()} translation.
             - Add filler sounds like "uh", "hmm", "ahh", or stuttering where it fits the character's tone.
             - Preserve emotional nuance (anger, sarcasm, nervousness, etc).
-            - Keep the rewritten line short enough to be spoken within the original segment’s timing.
+            - Keep the rewritten line short enough to be spoken within the original segment’s timing (`end`-`start`).
 
             Always consider **previous lines** and **what comes next**, and ensure the dialogue flows naturally across segments.
 
@@ -183,7 +190,7 @@ def translate_with_gpt(segments):
             model=DEPLOYMENT_NAME,
             messages=[
                 {"role": "system",
-                    "content": "You are a professional anime dubbing scriptwriter."},
+                    "content": "You are a professional anime, movie, series dubbing scriptwriter."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7
@@ -231,50 +238,68 @@ def run_f5_tts_infer(model, ref_audio, ref_text, gen_text, output_dir=None, outp
 
 def voice_cloning(segments, audio_path, max_threads=4):
     audio = AudioSegment.from_file(audio_path)
-    crop_audio_futures = []
+    # crop_audio_futures = []
     with st.spinner("🔊 Cropping audio segments..."):
-        with ThreadPoolExecutor(max_workers=max_threads) as executor:
-            for segment in segments:
-                start_ms = int(segment["start"] * 1000)
-                end_ms = int(segment["end"] * 1000)
-                cropped = audio[start_ms:end_ms]
-                output_file = os.path.join(
-                    cropped_audio_dir, f"cropped_{segment['id']}.wav")
-                crop_audio_futures.append(executor.submit(
-                    cropped.export, output_file, format="wav"))
-        # Wait for all cropping tasks to complete
-        for future in as_completed(crop_audio_futures):
-            try:
-                future.result()  # This will raise an exception if the export failed
-            except Exception as e:
-                st.error(f"Error cropping audio: {e}")
-                clean_up()
-                sys.exit(1)
-                return None
+        for segment in segments:
+            start_ms = int(segment["start"] * 1000)
+            end_ms = int(segment["end"] * 1000)
+            cropped = audio[start_ms:end_ms]
+            cropped.export(os.path.join(cropped_audio_dir,
+                           f"cropped_{segment['id']}.wav"), format="wav")
+            print(f"cropped_{segment['id']}.wav", flush=True)
+        # with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        #     for segment in segments:
+        #         start_ms = int(segment["start"] * 1000)
+        #         end_ms = int(segment["end"] * 1000)
+        #         cropped = audio[start_ms:end_ms]
+        #         output_file = os.path.join(
+        #             cropped_audio_dir, f"cropped_{segment['id']}.wav")
+        #         crop_audio_futures.append(executor.submit(
+        #             cropped.export, output_file, format="wav"))
+        # # Wait for all cropping tasks to complete
+        # for future in as_completed(crop_audio_futures):
+        #     try:
+        #         future.result()  # This will raise an exception if the export failed
+        #     except Exception as e:
+        #         st.error(f"Error cropping audio: {e}")
+        #         clean_up()
+        #         sys.exit(1)
+        #         return None
     with st.spinner("🤖 Cloning voice..."):
         try:
-            with ThreadPoolExecutor(max_workers=max_threads) as executor:
-                futures = []
-                for segment in segments:
-                    ref_audio = os.path.join(
-                        cropped_audio_dir, f"cropped_{segment['id']}.wav")
-                    ref_text = segment["text"]
-                    gen_text = segment["translation"]
-                    # Check if ref_text and gen_text are not empty
-                    if not ref_text or not gen_text:
-                        print(
-                            f"Skipping segment {segment} due to empty ref_text or gen_text")
-                        continue
-                    if gen_text:
-                        future = executor.submit(run_f5_tts_infer, "F5TTS_v1_Base",
-                                                 ref_audio, ref_text, gen_text,
-                                                 output_dir=cloned_audio_dir,
-                                                 output_file=f"output_{segment['id']}.wav")
-                        futures.append(future)
-                for future in as_completed(futures):
-                    output = future.result()
-                    print(f"F5 TTS Infer output: {output}")
-
+            # with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            #     futures = []
+            #     for segment in segments:
+            #         ref_audio = os.path.join(
+            #             cropped_audio_dir, f"cropped_{segment['id']}.wav")
+            #         ref_text = segment["text"]
+            #         gen_text = segment["translation"]
+            #         # Check if ref_text and gen_text are not empty
+            #         if not ref_text or not gen_text:
+            #             print(
+            #                 f"Skipping segment {segment} due to empty ref_text or gen_text")
+            #             continue
+            #         if gen_text:
+            #             future = executor.submit(run_f5_tts_infer, "F5TTS_v1_Base",
+            #                                      ref_audio, ref_text, gen_text,
+            #                                      output_dir=cloned_audio_dir,
+            #                                      output_file=f"output_{segment['id']}.wav")
+            #             futures.append(future)
+            #     for future in as_completed(futures):
+            #         output = future.result()
+            #         print(f"F5 TTS Infer output: {output}")
+            for segment in segments:
+                ref_audio = os.path.join(
+                    cropped_audio_dir, f"cropped_{segment['id']}.wav")
+                ref_text = segment["text"]
+                gen_text = segment["translation"]
+                # Check if ref_text and gen_text are not empty
+                if not ref_text or not gen_text:
+                    print(
+                        f"Skipping segment {segment} due to empty ref_text or gen_text")
+                    continue
+                run_f5_tts_infer("F5TTS_v1_Base", ref_audio, ref_text, gen_text,
+                                 output_dir=cloned_audio_dir, output_file=f"output_{segment['id']}.wav")
         except Exception as e:
             st.error(f"Voice cloning failed: {e}")
             clean_up()
@@ -291,19 +316,6 @@ if __name__ == "__main__":
         st.session_state.is_processing = False
 
     with st.sidebar:
-        # File uploader for MP4 video
-        st.write("Video Input Options")
-        video_file = st.file_uploader("Upload a MP4 video file", type=[
-            "mp4"], disabled=st.session_state.is_processing, on_change=set_processing, args=(True,))
-        st.write("OR")
-        video_url = st.text_input(
-            "Enter the URL of a MP4 video (Youtube or other)",
-            disabled=st.session_state.is_processing,
-            on_change=set_processing,  # Will pass value below
-            args=(True,)
-        )
-        st.divider()
-
         st.write("Language Options")
         input_languages = [
             ("Japanese", "ja"), ("English", "en"), ("Chinese", "zh"),
@@ -329,13 +341,26 @@ if __name__ == "__main__":
         )
         output_language_value = dict(output_languages)[output_language]
         st.divider()
+        # File uploader for MP4 video
+        st.write("Video Input Options")
+        video_file = st.file_uploader("Upload a MP4 video file", type=[
+            "mp4"], disabled=st.session_state.is_processing, on_change=set_processing, args=(True,))
+        st.write("OR")
+        video_url = st.text_input(
+            "Enter the URL of a MP4 video (Youtube or other)",
+            disabled=st.session_state.is_processing,
+            on_change=set_processing,  # Will pass value below
+            args=(True,)
+        )
+        st.divider()
+
         st.write("Transcription Options")
         whisper_models = ["tiny", "base", "small",
                           "medium", "large", "large-v2", "large-v3", "turbo"]
         selected_model = st.selectbox(
             "Select Whisper model for transcription",
             options=whisper_models,
-            index=4,  # Default to 'large'
+            index=7,  # Default to 'large'
             disabled=st.session_state.is_processing,
             help="Larger models provide better accuracy but are slower."
         )
@@ -456,7 +481,13 @@ if __name__ == "__main__":
                 dubbed_video_path = os.path.join(
                     sample_output_dir, f"dubbed_video_{selected_model}_{output_language.lower()}.mp4")
                 video.write_videofile(
-                    dubbed_video_path, codec="libx264", audio_codec="aac")
+                    dubbed_video_path,
+                    codec="libx264",
+                    audio_codec="aac",
+                    temp_audiofile=os.path.join(
+                        sample_output_dir, "temp-audio.m4a"),  # explicitly inside /tmp
+                    remove_temp=True
+                )
                 st.subheader("Dubbed video")
                 st.video(dubbed_video_path)
         end_time = time.time()
