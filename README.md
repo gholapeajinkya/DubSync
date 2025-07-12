@@ -14,6 +14,7 @@ Try DubSync live on Hugging Face Spaces: [https://gholapeajinkya-dubsync.hf.spac
 - 🎤 Clone voices using F5-TTS with reference audio
 - 🎼 Separate vocals & background using Demucs
 - 🎚️ Sync re-synthesized voices with original timing
+- 📝 Generate SRT subtitles for dubbed content
 - 🎛️ Multi-threaded processing for speed
 - 🧹 Cleanup temporary resources easily
 - 🧪 Streamlit UI with real-time previews
@@ -40,6 +41,7 @@ DubSync/
 | Voice Cloning            | F5-TTS CLI             |
 | Audio Separation         | Demucs                 |
 | Audio Processing         | pydub, moviepy         |
+| Subtitle Generation      | SRT format             |
 | UI                       | Streamlit              |
 
 ---
@@ -125,3 +127,5 @@ streamlit run app.py
 | `large`    | Slowest  | Highest    | ~1.55 GB  |
 | `large-v2` | Slowest  | Highest    | ~1.55 GB  |
 | `large-v3` | Slowest  | Highest    | ~1.55 GB  |
+| `turbo`    | Fast     | High       | ~809 MB   |
+
