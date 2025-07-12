@@ -412,16 +412,6 @@ if __name__ == "__main__":
             help="Larger models provide better accuracy but are slower."
         )
         st.divider()
-
-        st.write("Subtitle Control")
-        st.toggle(
-            "Enable subtitles",
-            value=True,
-            key="enable_subtitles",
-            disabled=st.session_state.is_processing,
-            help="Enable or disable subtitles in the dubbed video."
-        )
-
         # Show current device info
         st.info(f"🖥️ Using device: **{device.upper()}**" +
                 (" (GPU acceleration enabled)" if device == "cuda" else " (CPU only)"))
@@ -551,10 +541,7 @@ if __name__ == "__main__":
                     remove_temp=True
                 )
                 st.subheader("Dubbed video")
-                if st.session_state.enable_subtitles:
-                    st.video(dubbed_video_path, subtitles=subtitle_path)
-                else:
-                    st.video(dubbed_video_path)
+                st.video(dubbed_video_path, subtitles=subtitle_path)
         end_time = time.time()
         # # Calculate the elapsed time
         elapsed_time = end_time - start_time
