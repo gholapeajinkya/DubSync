@@ -195,5 +195,9 @@ sample_inputs/**
 
 .vscode/
 
+# Ignore all files in demos folder except demo.json
+demos/**
+!demos/demo.json
+
 Untitled-1.md
 

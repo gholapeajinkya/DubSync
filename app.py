@@ -15,6 +15,7 @@ import time
 import sys
 import torch
 import pandas as pd
+import json
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -306,6 +307,7 @@ def voice_cloning(segments, audio_path, max_threads=4):
             sys.exit(1)
             return None
 
+
 def set_processing(value=True):
     st.session_state.is_processing = value
 
@@ -356,6 +358,21 @@ def seconds_to_srt_time(seconds):
     secs = int(seconds % 60)
     milliseconds = int((seconds % 1) * 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+
+def load_demo_data():
+    """Load demo data from demo.json file"""
+    demo_json_path = os.path.join(demo_dir, "demo.json")
+    try:
+        with open(demo_json_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.error(f"Demo file not found: {demo_json_path}")
+        return []
+    except json.JSONDecodeError as e:
+        st.error(f"Error reading demo file: {e}")
+        return []
+
 
 # Main Streamlit app
 if __name__ == "__main__":
@@ -561,34 +578,55 @@ if __name__ == "__main__":
 
         st.subheader("📺 Demo Videos")
 
-        # Check if sample videos exist and display them
-        demo_videos = [
-            ("sample_input_video.mp4", "Original Japanese video 🇯🇵"),
-            ("dubbed_video_large_english.mp4", "Japanese to English Dub 🇯🇵➡️🇺🇸"),
-            ("dubbed_video_large_chinese.mp4", "Japanese to Chinese Dub 🇯🇵➡️🇨🇳"),
-        ]
+        # Load demo data from JSON
+        demo_data = load_demo_data()
 
-        demo_cols = st.columns(len(demo_videos))
+        if demo_data:
+            for i, demo in enumerate(demo_data):
+                # Create columns for videos
+                if demo['videos']:
+                    with st.expander(f"Demo {i + 1}", expanded=True):
+                        demo_videos = st.columns(len(demo['videos']))
 
-        for i, (video_file, title) in enumerate(demo_videos):
-            video_path = os.path.join(demo_dir, video_file)
-            if os.path.exists(video_path):
-                with demo_cols[i]:
-                    st.markdown(f"**{title}**")
-                    st.video(video_path)
-            else:
-                with demo_cols[i]:
-                    st.markdown(f"**{title}**")
-                    st.info("Demo video will appear")
+                        for j, video_info in enumerate(demo['videos']):
+                            video_id = video_info['id']
+                            video_name = video_info['name']
 
-        st.markdown("---")
+                            # Construct video path based on demo structure
+                            video_path = os.path.join(
+                                demo_dir, demo['id'], 'videos', video_id, 'video.mp4')
 
-        if os.path.exists(os.path.join(demo_dir, "output_segments_large_english.csv")):
-            st.subheader("📊 Sample Transcription Results")
-            try:
-                sample_df = pd.read_csv(os.path.join(
-                    demo_dir, "output_segments_large_english.csv"))
-                st.dataframe(sample_df.head(
-                    10), use_container_width=True, hide_index=True)
-            except Exception as e:
-                st.info("Sample transcription data will appear here")
+                            with demo_videos[j]:
+                                st.markdown(f"**{video_name}**")
+
+                                if os.path.exists(video_path):
+                                    st.video(video_path)
+                                else:
+                                    st.info("Video will appear here")
+                           
+                        # Create columns for transcriptions if they exist
+                        videos_with_transcriptions = [v for v in demo['videos'] if 'transcription_url' in v]
+                        
+                        if videos_with_transcriptions:
+                            st.markdown("### 📊 Transcription Results")
+                            transcription_cols = st.columns(len(videos_with_transcriptions))
+                            
+                            for k, video_info in enumerate(videos_with_transcriptions):
+                                video_id = video_info['id']
+                                video_name = video_info['name']
+                                
+                                # Construct transcription path
+                                transcription_path = os.path.join(
+                                    demo_dir, demo['id'], 'videos', video_id, 'transcription.csv')
+                                
+                                with transcription_cols[k]:
+                                    st.markdown(f"**{video_name} - Transcription**")
+                                    
+                                    if os.path.exists(transcription_path):
+                                        try:
+                                            transcription_df = pd.read_csv(transcription_path)
+                                            st.dataframe(transcription_df, use_container_width=True, hide_index=True, height=400)
+                                        except Exception as e:
+                                            st.error(f"Error loading transcription: {e}")
+                                    else:
+                                        st.info("Transcription will appear here")
