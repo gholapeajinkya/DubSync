@@ -16,3 +16,7 @@ ffmpeg-python
 ffmpy
 demucs
 f5-tts
+librosa
+noisereduce
+scipy
+numpy

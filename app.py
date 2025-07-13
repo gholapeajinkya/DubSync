@@ -16,6 +16,10 @@ import sys
 import torch
 import pandas as pd
 import json
+import numpy as np
+import librosa
+import noisereduce as nr
+from scipy.signal import butter, filtfilt
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -374,6 +378,159 @@ def load_demo_data():
         return []
 
 
+def clean_audio_for_transcription(audio_path, output_path=None, noise_reduction_strength=0.8, enable_cleaning=True):
+    """
+    Clean and preprocess audio for better Whisper transcription quality.
+    
+    Args:
+        audio_path: Path to input audio file
+        output_path: Path for cleaned audio output (optional)
+        noise_reduction_strength: Strength of noise reduction (0.1 to 1.0)
+        enable_cleaning: Whether to apply cleaning or return original
+    
+    Returns:
+        Path to cleaned audio file
+    """
+    if not enable_cleaning:
+        return audio_path
+        
+    with st.spinner("🧹 Cleaning audio for better transcription..."):
+        try:
+            # Load audio with librosa for better preprocessing
+            audio_data, sample_rate = librosa.load(audio_path, sr=16000)  # Whisper prefers 16kHz
+            
+            # 1. Noise reduction using spectral gating
+            # First, estimate noise from the first 1 second (assuming it contains background noise)
+            noise_sample_duration = min(1.0, len(audio_data) / sample_rate * 0.1)  # 10% or 1 sec max
+            noise_sample_size = int(noise_sample_duration * sample_rate)
+            
+            if len(audio_data) > noise_sample_size:
+                # Use noisereduce if available, otherwise use simple high-pass filter
+                try:
+                    import noisereduce as nr
+                    audio_data = nr.reduce_noise(
+                        y=audio_data, 
+                        sr=sample_rate,
+                        stationary=False,  # Non-stationary noise reduction
+                        prop_decrease=noise_reduction_strength  # Use configurable strength
+                    )
+                except ImportError:
+                    # Fallback: Simple high-pass filter to remove low-frequency noise
+                    nyquist = sample_rate * 0.5
+                    low_cutoff = 80  # Remove frequencies below 80Hz
+                    low_cutoff_normalized = low_cutoff / nyquist
+                    b, a = butter(5, low_cutoff_normalized, btype='high')
+                    audio_data = filtfilt(b, a, audio_data)
+                    print("noisereduce not available, using high-pass filter instead")
+            
+            # 2. Normalize audio levels
+            # RMS normalization to -20dB to prevent clipping while maintaining dynamics
+            rms = np.sqrt(np.mean(audio_data**2))
+            if rms > 0:
+                target_rms = 10**(-20/20)  # -20dB
+                audio_data = audio_data * (target_rms / rms)
+            
+            # 3. Remove silence and very quiet parts (optional, be careful not to remove speech pauses)
+            # Use librosa's voice activity detection
+            intervals = librosa.effects.split(
+                audio_data, 
+                top_db=30,  # Threshold for silence detection
+                frame_length=2048,
+                hop_length=512
+            )
+            
+            # 4. Apply gentle compression to even out volume levels
+            # Simple soft limiting
+            threshold = 0.95
+            audio_data = np.where(
+                np.abs(audio_data) > threshold,
+                np.sign(audio_data) * (threshold + (np.abs(audio_data) - threshold) * 0.1),
+                audio_data
+            )
+            
+            # 5. Final normalization to prevent clipping
+            max_amplitude = np.max(np.abs(audio_data))
+            if max_amplitude > 0.95:
+                audio_data = audio_data * (0.95 / max_amplitude)
+            
+            # Save cleaned audio
+            if output_path is None:
+                output_path = audio_path.replace('.wav', '_cleaned.wav')
+            
+            # Convert back to pydub AudioSegment for consistency with your existing code
+            audio_int16 = (audio_data * 32767).astype(np.int16)
+            cleaned_audio = AudioSegment(
+                audio_int16.tobytes(),
+                frame_rate=sample_rate,
+                sample_width=2,  # 16-bit
+                channels=1
+            )
+            
+            cleaned_audio.export(output_path, format="wav")
+            print(f"Audio cleaned and saved to: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            st.warning(f"Audio cleaning failed, using original audio: {e}")
+            return audio_path  # Return original if cleaning fails
+
+
+def enhance_vocals_separation(demucs_output_dir):
+    """
+    Further enhance the separated vocals for better transcription.
+    """
+    try:
+        separated_dir = os.path.join(
+            demucs_output_dir, "htdemucs", 
+            os.path.splitext(os.path.basename(audio_path))[0]
+        )
+        vocals_path = os.path.join(separated_dir, "vocals.wav")
+        
+        if os.path.exists(vocals_path):
+            enhanced_vocals_path = vocals_path.replace('.wav', '_enhanced.wav')
+            return clean_audio_for_transcription(vocals_path, enhanced_vocals_path)
+        else:
+            return vocals_path
+    except Exception as e:
+        st.warning(f"Vocal enhancement failed: {e}")
+        return vocals_path
+
+
+def analyze_audio_quality(audio_path, label="Audio"):
+    """
+    Analyze audio quality metrics for debugging and optimization.
+    """
+    try:
+        import librosa
+        audio_data, sample_rate = librosa.load(audio_path, sr=None)
+        
+        # Calculate basic metrics
+        rms = np.sqrt(np.mean(audio_data**2))
+        peak = np.max(np.abs(audio_data))
+        snr_estimate = 20 * np.log10(rms / (np.std(audio_data) + 1e-10))
+        
+        # Dynamic range
+        dynamic_range = 20 * np.log10(peak / (rms + 1e-10))
+        
+        metrics = {
+            "Sample Rate": f"{sample_rate} Hz",
+            "Duration": f"{len(audio_data) / sample_rate:.2f} seconds",
+            "RMS Level": f"{20 * np.log10(rms + 1e-10):.2f} dB",
+            "Peak Level": f"{20 * np.log10(peak + 1e-10):.2f} dB",
+            "Estimated SNR": f"{snr_estimate:.2f} dB",
+            "Dynamic Range": f"{dynamic_range:.2f} dB"
+        };
+        
+        st.write(f"**{label} Quality Metrics:**");
+        for metric, value in metrics.items():
+            st.write(f"- {metric}: {value}");
+            
+        return metrics
+    except Exception as e:
+        st.warning(f"Could not analyze audio quality: {e}")
+        return {}
+
+
 # Main Streamlit app
 if __name__ == "__main__":
     if "is_processing" not in st.session_state:
@@ -429,10 +586,33 @@ if __name__ == "__main__":
             help="Larger models provide better accuracy but are slower."
         )
         st.divider()
-        # Show current device info
-        st.info(f"🖥️ Using device: **{device.upper()}**" +
-                (" (GPU acceleration enabled)" if device == "cuda" else " (CPU only)"))
-
+        st.write("Audio Enhancement Options")
+        enable_audio_cleaning = st.checkbox(
+            "Enable advanced audio cleaning",
+            value=True,
+            disabled=st.session_state.is_processing,
+            help="Applies noise reduction, normalization, and other enhancements for better transcription"
+        )
+        
+        if enable_audio_cleaning:
+            noise_reduction_strength = st.slider(
+                "Noise reduction strength",
+                min_value=0.1,
+                max_value=1.0,
+                value=0.8,
+                step=0.1,
+                disabled=st.session_state.is_processing,
+                help="Higher values remove more noise but may affect speech quality"
+            )
+            
+            show_audio_metrics = st.checkbox(
+                "Show audio quality metrics",
+                value=False,
+                disabled=st.session_state.is_processing,
+                help="Display technical metrics about audio quality before and after cleaning"
+            )
+        
+        # ...existing code...
     if video_url:
         if "youtube.com" in video_url or "youtu.be" in video_url:
             with st.spinner("Downloading video from URL..."):
@@ -501,8 +681,25 @@ if __name__ == "__main__":
         bg_music_path = os.path.join(separated_dir, "other.wav")
         bass_path = os.path.join(separated_dir, "bass.wav")
         drums_path = os.path.join(separated_dir, "drums.wav")
+        
+        # Clean vocals for better transcription
         with output_video_col:
-            segments = transcribe_audio(vocals_path)
+            if enable_audio_cleaning and 'show_audio_metrics' in locals() and show_audio_metrics:
+                st.subheader("Audio Quality Analysis")
+                with st.expander("Original Vocals Quality"):
+                    analyze_audio_quality(vocals_path, "Original Vocals")
+            
+            cleaned_vocals_path = clean_audio_for_transcription(
+                vocals_path, 
+                enable_cleaning=enable_audio_cleaning,
+                noise_reduction_strength=noise_reduction_strength if enable_audio_cleaning else 0.8
+            )
+            
+            if enable_audio_cleaning and 'show_audio_metrics' in locals() and show_audio_metrics and cleaned_vocals_path != vocals_path:
+                with st.expander("Cleaned Vocals Quality"):
+                    analyze_audio_quality(cleaned_vocals_path, "Cleaned Vocals")
+            
+            segments = transcribe_audio(cleaned_vocals_path)
         with output_video_col:
             # Translate the segments using AI
             segments = translate_with_gpt(segments)
@@ -526,7 +723,7 @@ if __name__ == "__main__":
             sample_output_dir, f"output_segments_{selected_model}_{output_language.lower()}.csv")
         df.to_csv(segments_csv_path, index=False, encoding="utf-8")
         with output_video_col:
-            voice_cloning(segments, vocals_path)
+            voice_cloning(segments, cleaned_vocals_path)
 
         translated_audio = generate_audio_from_segments(segments, audio_path)
         video = VideoFileClip(uploaded_video_path)
