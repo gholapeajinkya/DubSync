@@ -611,8 +611,11 @@ if __name__ == "__main__":
                 disabled=st.session_state.is_processing,
                 help="Display technical metrics about audio quality before and after cleaning"
             )
-        
-        # ...existing code...
+        st.divider()
+        # Show current device info
+        st.info(f"🖥️ Using device: **{device.upper()}**" +
+                (" (GPU acceleration enabled)" if device == "cuda" else " (CPU only)"))
+    
     if video_url:
         if "youtube.com" in video_url or "youtu.be" in video_url:
             with st.spinner("Downloading video from URL..."):
