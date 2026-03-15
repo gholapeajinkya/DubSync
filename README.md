@@ -2,6 +2,8 @@
 
 DubSync is a Streamlit-based application for automated video dubbing. It enables users to upload or link to a video, extract and transcribe its audio, translate the dialogue, and generate a dubbed version in a target language using advanced TTS and voice cloning.
 
+![DubSync](assets/1753605713641.jpeg)
+
 ## 🚀 Live Demo
 
 Try DubSync live on Hugging Face Spaces: [https://gholapeajinkya-dubsync.hf.space/](https://gholapeajinkya-dubsync.hf.space/)

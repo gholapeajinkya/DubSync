@@ -130,8 +130,8 @@ def generate_audio_from_segments(segments, original_audio_path):
                 gap_start = int(last_end_time * 1000)
                 gap_end = int(start_ms)
                 gap_audio = original_audio[gap_start:gap_end]
-                final_audio += gap_audio
-                # final_audio += AudioSegment.silent(duration=gap_duration)
+                # final_audio += gap_audio
+                final_audio += AudioSegment.silent(duration=gap_duration)
 
             # Clip or pad the TTS output to exactly fit segment duration
             if len(spoken) > duration_ms:
@@ -566,6 +566,13 @@ if __name__ == "__main__":
         st.write("Video Input Options")
         video_file = st.file_uploader("Upload a MP4 video file", type=[
             "mp4"], disabled=st.session_state.is_processing, on_change=set_processing, args=(True,))
+        if video_file is not None:
+            # Write uploaded file to a stable location
+            save_path = os.path.join("/tmp", video_file.name)
+            with open(save_path, "wb") as f:
+                f.write(video_file.read())
+            st.video(save_path)  # Use the saved file path, not internal Streamlit ID
+            st.success(f"Saved and loaded video from: {save_path}")
         st.write("OR")
         video_url = st.text_input(
             "Enter the URL of a MP4 video (Youtube or other)",

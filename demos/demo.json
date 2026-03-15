@@ -36,5 +36,22 @@
         "video_url": "https://drive.google.com/uc?export=download&id=1GKI0dnj2Udy8wAca04ox3_Xfsh6FUXTh"
       }
     ]
+  },
+  {
+    "id": "38d5a048-0386-4c7e-bbb9-10847de532ff",
+    "title": "Japanese Video with Subtitles",
+    "videos": [
+      {
+        "id": "1",
+        "name": "Original japanese video 🇯🇵",
+        "video_url": "https://drive.google.com/uc?export=download&id=1QmjexynSSDpRazZQ2d83zX0M6x_KHAP0"
+      },
+      {
+        "id": "2",
+        "name": "Japanese to English dubbed video 🇯🇵➡️🇬🇧",
+        "video_url": "https://drive.google.com/uc?export=download&id=1qg6GQ1bJSN6mkq7wyh3ZQXLQPwdv0x91",
+        "transcription_url": "https://drive.google.com/uc?export=download&id=1rLl4lBBUpfMI8JfdxteAa2ZkUttkhGdA"
+      }
+    ]
   }
 ]
