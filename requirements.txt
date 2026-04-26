@@ -20,3 +20,5 @@ librosa
 noisereduce
 scipy
 numpy
+langgraph
+langchain-openai
