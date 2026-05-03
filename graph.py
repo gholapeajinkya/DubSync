@@ -4,6 +4,7 @@ from nodes.extract_audio import extract_audio_node
 from nodes.separate_layers import separate_audio_layers_node
 from nodes.transcribe import transcribe_audio_node
 from nodes.translate import translation_node
+from nodes.voice_cloning import voice_cloning_node
 from state import AgentState
 
 
@@ -31,6 +32,7 @@ graph.add_node("clean_audio_node", clean_audio_node)
 graph.add_node("transcribe_audio_node", transcribe_audio_node)
 # Placeholder for translation node
 graph.add_node("translation_node", translation_node)
+graph.add_node("voice_cloning_node", voice_cloning_node)
 graph.add_node("error_node", error_node)
 
 # Edges
@@ -68,12 +70,21 @@ graph.add_conditional_edges(
 
 graph.add_conditional_edges(
     "translation_node",
+    route_on_error("voice_cloning_node"),
+    {
+        "voice_cloning": "voice_cloning_node",
+        "error": "error_node"
+    }
+)
+
+graph.add_conditional_edges(
+    "voice_cloning_node",
     route_on_error("end"),
     {
         "end": END,
         "error": "error_node"
     }
-)
+);
 
 graph.add_edge("error_node", END)
 
