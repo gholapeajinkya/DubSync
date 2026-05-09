@@ -11,11 +11,14 @@ def clean_audio_node(state: AgentState) -> AgentState:
       Cleans the separated audio layers (e.g., noise reduction) and saves them to temporary locations for better Whisper transcription quality.
     """
     audio_path = state.get(
-        "dialogue_path")  # Clean dialogue layer for better transcription
+        "vocals_path")  # Clean dialogue layer for better transcription
     if not audio_path:
         state["error"] = "No dialogue audio path found for cleaning."
         return state
     try:
+        # Define output path
+        output_path = audio_path.replace('.wav', '_cleaned.wav')
+        
         # Load audio with librosa for better preprocessing
         audio_data, sample_rate = librosa.load(
             audio_path, sr=16000)  # Whisper prefers 16kHz
@@ -74,10 +77,6 @@ def clean_audio_node(state: AgentState) -> AgentState:
         max_amplitude = np.max(np.abs(audio_data))
         if max_amplitude > 0.95:
             audio_data = audio_data * (0.95 / max_amplitude)
-
-        # Save cleaned audio
-        if output_path is None:
-            output_path = audio_path.replace('.wav', '_cleaned.wav')
 
         # Convert back to pydub AudioSegment for consistency with your existing code
         audio_int16 = (audio_data * 32767).astype(np.int16)
