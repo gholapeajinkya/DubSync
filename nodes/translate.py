@@ -1,6 +1,7 @@
 from state import AgentState
 import os
 from langchain_openai import AzureChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 import ast
 
 # Azure OpenAI configuration
@@ -15,9 +16,20 @@ def clean_response_text(text):
     text = text.strip()
     if text.startswith("```json") and text.endswith("```"):
         text = "\n".join(text.strip("`").split("\n")[1:])
-    unwanted_prefix = f"Here's the rewritten script for the dubbing:"
-    if text.startswith(unwanted_prefix):
-        text = text[len(unwanted_prefix):].strip()
+    # Handle both straight and curly apostrophes
+    unwanted_prefixes = [
+        "Here's the rewritten script for the dubbing:",
+        "Here's the rewritten script for the dubbing:",  # curly apostrophe
+    ]
+    for prefix in unwanted_prefixes:
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    # Also try to find the JSON array start
+    if not text.startswith("["):
+        bracket_pos = text.find("[")
+        if bracket_pos != -1:
+            text = text[bracket_pos:]
     return text
 
 def translation_node(state: AgentState) -> AgentState:
@@ -56,16 +68,12 @@ def translation_node(state: AgentState) -> AgentState:
         Return the rewritten translation line and id in json format, and make sure to start the respond with 'Here's the rewritten script for the dubbing:'
         """
 
-    response = llm.chat.completions.create(
-        messages=[
-            {"role": "system",
-                "content": "You are a professional anime, movie, series dubbing scriptwriter."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7
-    )
-    response_segment = clean_response_text(
-        response.choices[0].message.content.strip())
+    messages = [
+        SystemMessage(content="You are a professional anime, movie, series dubbing scriptwriter."),
+        HumanMessage(content=prompt)
+    ]
+    response = llm.invoke(messages)
+    response_segment = clean_response_text(response.content.strip())
     response_segment = clean_response_text(response_segment)
     print(f"translate_with_gpt response => \n{response_segment}")
     ai_segments = ast.literal_eval(str(response_segment))
