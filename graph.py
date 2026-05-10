@@ -8,7 +8,7 @@ from nodes.voice_cloning import (
     prepare_voice_cloning_node,
     fanout_voice_cloning,
     voice_cloning_worker,
-    combine_cloned_audio_node
+    combine_cloned_audio_and_generate_video_node
 )
 from state import AgentState
 
@@ -40,7 +40,7 @@ graph.add_node("translation_node", translation_node)
 # Parallel voice cloning nodes
 graph.add_node("prepare_voice_cloning_node", prepare_voice_cloning_node)
 graph.add_node("voice_cloning_worker", voice_cloning_worker)
-graph.add_node("combine_cloned_audio_node", combine_cloned_audio_node)
+graph.add_node("combine_cloned_audio_node", combine_cloned_audio_and_generate_video_node)
 graph.add_node("error_node", error_node)
 
 # Edges
@@ -78,32 +78,30 @@ graph.add_conditional_edges(
 
 graph.add_conditional_edges(
     "translation_node",
-    route_on_error("end"),
-    # route_on_error("prepare_voice_cloning_node"),
+    route_on_error("prepare_voice_cloning_node"),
     {
-        "end": END,
-        # "prepare_voice_cloning_node": "prepare_voice_cloning_node",
+        "prepare_voice_cloning_node": "prepare_voice_cloning_node",
         "error": "error_node"
     }
 )
 
-# # Fan-out: prepare_voice_cloning_node sends to parallel voice_cloning_workers
-# graph.add_conditional_edges(
-#     "prepare_voice_cloning_node",
-#     fanout_voice_cloning,  # Returns list of Send commands for parallel execution
-# )
+# Fan-out: prepare_voice_cloning_node sends to parallel voice_cloning_workers
+graph.add_conditional_edges(
+    "prepare_voice_cloning_node",
+    fanout_voice_cloning,  # Returns list of Send commands for parallel execution
+)
 
-# # Fan-in: all voice_cloning_workers converge to combine_cloned_audio_node
-# graph.add_edge("voice_cloning_worker", "combine_cloned_audio_node")
+# Fan-in: all voice_cloning_workers converge to combine_cloned_audio_node
+graph.add_edge("voice_cloning_worker", "combine_cloned_audio_node")
 
-# graph.add_conditional_edges(
-#     "combine_cloned_audio_node",
-#     route_on_error("end"),
-#     {
-#         "end": END,
-#         "error": "error_node"
-#     }
-# )
+graph.add_conditional_edges(
+    "combine_cloned_audio_node",
+    route_on_error("end"),
+    {
+        "end": END,
+        "error": "error_node"
+    }
+)
 
 graph.add_edge("error_node", END)
 

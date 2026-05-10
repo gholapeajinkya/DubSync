@@ -26,6 +26,7 @@ class AgentState(TypedDict, total=False):
     # Parallel voice cloning support
     cloned_segments: Annotated[list, merge_cloned_segments]  # Collected results from parallel workers
     combined_audio_path: Optional[str]  # Final combined audio path
+    dubbed_video_path: Optional[str]  # Final dubbed video path
     error: Optional[str]
 
 
@@ -33,5 +34,6 @@ class VoiceCloningWorkerState(TypedDict):
     """State for individual voice cloning worker."""
     segment: dict  # Single segment to process
     dialogue_path: str
+    temp_folder: str  # Path to temporary folder
     cloned_segments: Annotated[list, merge_cloned_segments]
     error: Optional[str]
