@@ -77,7 +77,7 @@ DubSync/
 - Python 3.10+
 - [ffmpeg](https://ffmpeg.org/) installed and available in PATH
 - [Demucs](https://github.com/facebookresearch/demucs) for audio separation
-- F5 TTS inference CLI for voice cloning
+- [F5 TTS](https://swivid.github.io/F5-TTS/) inference CLI for voice cloning
 - Azure OpenAI and Google Translate API keys (set in `.env`)
 - See [requirements.txt](requirements.txt) for all Python dependencies
 
